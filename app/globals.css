@@ -1,0 +1,23 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@300;400;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --red: #e50914;
+  --red-dark: #b20710;
+  --black: #0a0a0a;
+  --card: #141414;
+  --zinc: #2a2a2a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--black);
+  color: white;
+  font-family: 'Nunito', sans-serif;
+  margin: 0;
+}
+
+::-webkit-scrollbar { height: 4px; width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--red); border-radius: 2px; }
