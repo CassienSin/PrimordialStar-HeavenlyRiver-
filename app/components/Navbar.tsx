@@ -247,6 +247,7 @@ export default function Navbar() {
         <div className="nav-center">
           <Link href="/" className="nav-link">Home</Link>
           <Link href="/search" className="nav-link">Search</Link>
+          <Link href="/party" className="nav-link">Parties</Link>
         </div>
 
         {/* Desktop right */}
@@ -346,6 +347,9 @@ export default function Navbar() {
         <Link href="/search" className="mobile-link" onClick={() => setMobileOpen(false)}>
           <span></span> Search
         </Link>
+        <Link href="/party" className="mobile-link" onClick={() => setMobileOpen(false)}>
+        <span className="mobile-link-icon">🎉</span> Watch Parties
+      </Link>
         {admin && (
           <Link href="/upload" className="mobile-link" onClick={() => setMobileOpen(false)}>
             <span></span> Upload Video
