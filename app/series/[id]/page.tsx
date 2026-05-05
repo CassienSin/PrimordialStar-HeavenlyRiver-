@@ -1,0 +1,473 @@
+'use client'
+
+import { useEffect, useState, useRef } from 'react'
+import { supabase } from '../../lib/supabase'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import Navbar from '../../components/Navbar'
+import { getStorageUrl } from '../../lib/storage'
+
+export default function SeriesDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter()
+  const [seriesId, setSeriesId] = useState('')
+  const [series, setSeries] = useState<any>(null)
+  const [seasons, setSeasons] = useState<any[]>([])
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [activeSeason, setActiveSeason] = useState(0)
+  const [showAddSeason, setShowAddSeason] = useState(false)
+  const [showUploadEp, setShowUploadEp] = useState(false)
+  const [selectedSeasonId, setSelectedSeasonId] = useState('')
+  const [epForm, setEpForm] = useState({ title: '', description: '', episode_number: 1 })
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [thumbFile, setThumbFile] = useState<File | null>(null)
+  const [autoThumb, setAutoThumb] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [progressPhase, setProgressPhase] = useState('')
+  const [newSeasonNum, setNewSeasonNum] = useState(1)
+  const [newSeasonTitle, setNewSeasonTitle] = useState('')
+
+  useEffect(() => {
+    params.then(p => setSeriesId(p.id))
+  }, [params])
+
+  useEffect(() => {
+    if (!seriesId) return
+    const load = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { router.push('/login'); return }
+
+      const { data: profile } = await supabase
+        .from('profiles').select('is_admin').eq('id', session.user.id).single()
+      setIsAdmin(profile?.is_admin === true)
+
+      const { data: seriesData } = await supabase
+        .from('series').select('*').eq('id', seriesId).single()
+      setSeries(seriesData)
+
+      const { data: seasonsData } = await supabase
+        .from('seasons')
+        .select('*, episodes(id, episode_number, title, description, thumbnail_url, video_url, duration)')
+        .eq('series_id', seriesId)
+        .order('season_number', { ascending: true })
+      const sorted = (seasonsData || []).map((s: any) => ({
+        ...s,
+        episodes: [...(s.episodes || [])].sort((a: any, b: any) => a.episode_number - b.episode_number)
+      }))
+      setSeasons(sorted)
+      if (sorted.length > 0) setNewSeasonNum(sorted.length + 1)
+    }
+    load()
+  }, [seriesId, router])
+
+  const generateThumbnail = (file: File) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.src = url
+    video.muted = true
+    video.playsInline = true
+    video.addEventListener('seeked', () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 640; canvas.height = 360
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(video, 0, 0, 640, 360)
+      setAutoThumb(canvas.toDataURL('image/jpeg', 0.85))
+      URL.revokeObjectURL(url)
+    })
+    video.addEventListener('loadedmetadata', () => {
+      video.currentTime = Math.min(3, video.duration * 0.2)
+    })
+    video.load()
+  }
+
+  const dataUrlToFile = (dataUrl: string, filename: string): File => {
+    const arr = dataUrl.split(',')
+    const mime = arr[0].match(/:(.*?);/)![1]
+    const bstr = atob(arr[1])
+    let n = bstr.length
+    const u8arr = new Uint8Array(n)
+    while (n--) u8arr[n] = bstr.charCodeAt(n)
+    return new File([u8arr], filename, { type: mime })
+  }
+
+  const handleAddSeason = async () => {
+    const { data, error } = await supabase
+      .from('seasons')
+      .insert({ series_id: seriesId, season_number: newSeasonNum, title: newSeasonTitle || `Season ${newSeasonNum}` })
+      .select('*, episodes(id, episode_number, title, description, thumbnail_url, video_url, duration)')
+      .single()
+    if (!error && data) {
+      setSeasons(prev => [...prev, { ...data, episodes: [] }])
+      setNewSeasonNum(prev => prev + 1)
+      setNewSeasonTitle('')
+      setShowAddSeason(false)
+    }
+  }
+
+  const handleUploadEpisode = async () => {
+    if (!epForm.title || !videoFile || !selectedSeasonId) return
+    setUploading(true)
+    setProgress(0)
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || ''
+
+      // Upload video
+      setProgressPhase('Preparing upload...')
+      const videoRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ fileName: videoFile.name, fileType: videoFile.type, folder: 'episodes' }),
+      })
+      const { signedUrl, filePath, error: uploadErr } = await videoRes.json()
+      if (uploadErr) { setProgressPhase('❌ ' + uploadErr); setUploading(false); return }
+
+      setProgressPhase('Uploading episode...')
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('PUT', signedUrl)
+        xhr.setRequestHeader('Content-Type', videoFile.type)
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
+        }
+        xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject()
+        xhr.onerror = () => reject()
+        xhr.send(videoFile)
+      })
+
+      // Upload thumbnail
+      let thumbnailPath = ''
+      const thumbToUpload = thumbFile || (autoThumb ? dataUrlToFile(autoThumb, 'thumb.jpg') : null)
+      if (thumbToUpload) {
+        setProgressPhase('Uploading thumbnail...')
+        const thumbRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ fileName: 'thumb.jpg', fileType: thumbToUpload.type, folder: 'thumbnails' }),
+        })
+        const { signedUrl: tUrl, filePath: tPath } = await thumbRes.json()
+        await fetch(tUrl, { method: 'PUT', headers: { 'Content-Type': thumbToUpload.type }, body: thumbToUpload })
+        thumbnailPath = tPath
+      }
+
+      setProgressPhase('Saving...')
+      const { data: ep, error: dbErr } = await supabase.from('episodes').insert({
+        season_id: selectedSeasonId,
+        series_id: seriesId,
+        episode_number: epForm.episode_number,
+        title: epForm.title,
+        description: epForm.description,
+        video_url: filePath,
+        thumbnail_url: thumbnailPath,
+      }).select().single()
+
+      if (!dbErr && ep) {
+        setSeasons(prev => prev.map(s =>
+          s.id === selectedSeasonId
+            ? { ...s, episodes: [...s.episodes, ep].sort((a: any, b: any) => a.episode_number - b.episode_number) }
+            : s
+        ))
+        setShowUploadEp(false)
+        setEpForm({ title: '', description: '', episode_number: 1 })
+        setVideoFile(null)
+        setThumbFile(null)
+        setAutoThumb(null)
+        setProgress(0)
+        setProgressPhase('')
+      }
+    } catch (err: any) {
+      setProgressPhase('❌ Error: ' + err.message)
+    }
+    setUploading(false)
+  }
+
+  const handleDeleteEpisode = async (epId: string, seasonId: string) => {
+    await supabase.from('episodes').delete().eq('id', epId)
+    setSeasons(prev => prev.map(s =>
+      s.id === seasonId ? { ...s, episodes: s.episodes.filter((e: any) => e.id !== epId) } : s
+    ))
+  }
+
+  if (!series) return (
+    <div style={{ minHeight: '100vh', background: '#0a0812', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f0e6d3' }}>
+      <p>Loading...</p>
+    </div>
+  )
+
+  const currentSeason = seasons[activeSeason]
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0812', color: '#f0e6d3', fontFamily: "'Nunito', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Nunito:wght@300;400;600;700&display=swap');
+
+        .series-hero { position: relative; min-height: 380px; display: flex; align-items: flex-end; padding: 80px 48px 40px; overflow: hidden; }
+        .series-hero-bg { position: absolute; inset: 0; background-size: cover; background-position: center; filter: blur(2px) brightness(0.3); transform: scale(1.05); }
+        .series-hero-overlay { position: absolute; inset: 0; background: linear-gradient(to top, #0a0812 0%, rgba(10,8,18,0.6) 60%, transparent 100%); }
+        .series-hero-content { position: relative; z-index: 10; display: flex; gap: 32px; align-items: flex-end; max-width: 900px; }
+        .series-poster { width: 140px; height: 200px; border-radius: 8px; overflow: hidden; flex-shrink: 0; border: 2px solid rgba(201,168,76,0.2); box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+        .series-poster img { width: 100%; height: 100%; object-fit: cover; }
+        .series-poster-empty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 48px; background: #16121f; }
+        .series-info { flex: 1; }
+        .series-cat-badge { display: inline-block; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; padding: 3px 12px; border-radius: 2px; font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; font-family: 'Cinzel', serif; border: 1px solid rgba(201,168,76,0.3); margin-bottom: 12px; }
+        .series-name { font-family: 'Cinzel', serif; font-size: clamp(24px, 4vw, 48px); line-height: 1.1; margin: 0 0 12px; color: #f0e6d3; letter-spacing: 1px; }
+        .series-desc { color: rgba(240,230,211,0.6); font-size: 14px; line-height: 1.7; margin-bottom: 16px; max-width: 600px; }
+        .series-stats { display: flex; gap: 20px; flex-wrap: wrap; }
+        .series-stat { font-size: 13px; color: rgba(240,230,211,0.4); }
+        .series-stat span { color: #c9a84c; font-weight: 700; }
+
+        .series-body { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+
+        .season-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 28px; border-bottom: 1px solid rgba(201,168,76,0.1); padding-bottom: 16px; }
+        .season-tab { padding: 8px 20px; border-radius: 3px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Cinzel', serif; letter-spacing: 1px; transition: all 0.2s; border: 1px solid transparent; }
+        .season-tab.active { background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; border-color: rgba(201,168,76,0.3); }
+        .season-tab:not(.active) { color: rgba(240,230,211,0.4); border-color: rgba(201,168,76,0.1); background: rgba(201,168,76,0.04); }
+        .season-tab:not(.active):hover { color: #f0e6d3; border-color: rgba(201,168,76,0.2); }
+
+        .season-actions { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; }
+        .btn-sm { padding: 8px 16px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.2s; border: none; }
+        .btn-gold { background: rgba(201,168,76,0.1); color: #c9a84c; border: 1px solid rgba(201,168,76,0.25) !important; }
+        .btn-gold:hover { background: rgba(201,168,76,0.2); }
+        .btn-red { background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; border: 1px solid rgba(201,168,76,0.3) !important; }
+        .btn-red:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+
+        .ep-list { display: flex; flex-direction: column; gap: 12px; }
+        .ep-item { display: flex; gap: 16px; align-items: center; padding: 14px 16px; background: #16121f; border-radius: 8px; border: 1px solid rgba(201,168,76,0.07); transition: all 0.2s; text-decoration: none; }
+        .ep-item:hover { border-color: rgba(201,168,76,0.2); background: #1e1828; transform: translateX(4px); }
+        .ep-num { font-family: 'Cinzel', serif; font-size: 18px; color: rgba(240,230,211,0.2); font-weight: 700; min-width: 36px; text-align: center; flex-shrink: 0; }
+        .ep-thumb { width: 120px; height: 68px; border-radius: 5px; overflow: hidden; flex-shrink: 0; background: #1e1828; }
+        .ep-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .ep-thumb-empty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .ep-info { flex: 1; min-width: 0; }
+        .ep-title { font-size: 15px; font-weight: 700; color: #f0e6d3; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ep-desc { font-size: 13px; color: rgba(240,230,211,0.4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ep-actions { display: flex; gap: 8px; flex-shrink: 0; }
+        .ep-del-btn { width: 30px; height: 30px; border-radius: 4px; background: rgba(192,57,43,0.15); border: 1px solid rgba(192,57,43,0.25); color: #e74c3c; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .ep-del-btn:hover { background: rgba(192,57,43,0.3); }
+
+        .empty-eps { text-align: center; padding: 48px; color: rgba(240,230,211,0.25); }
+
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .modal { background: #16121f; border: 1px solid rgba(201,168,76,0.15); border-radius: 10px; padding: 32px; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; }
+        .modal-title { font-family: 'Cinzel', serif; font-size: 20px; letter-spacing: 1px; margin: 0 0 24px; color: #f0e6d3; }
+        .field { margin-bottom: 16px; }
+        .field label { display: block; font-size: 11px; font-weight: 700; color: rgba(240,230,211,0.4); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+        .field input, .field textarea, .field select { width: 100%; padding: 11px 14px; background: #0f0c18; border: 1px solid rgba(201,168,76,0.12); border-radius: 6px; color: #f0e6d3; font-size: 14px; font-family: 'Nunito', sans-serif; outline: none; box-sizing: border-box; transition: border-color 0.2s; }
+        .field input:focus, .field textarea:focus { border-color: rgba(201,168,76,0.4); }
+        .field input::placeholder, .field textarea::placeholder { color: rgba(240,230,211,0.2); }
+        .field input[type=file] { color: rgba(240,230,211,0.5); cursor: pointer; }
+        .field textarea { min-height: 70px; resize: vertical; }
+        .thumb-preview { width: 100%; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; background: #0f0c18; border: 1px solid rgba(201,168,76,0.1); margin-bottom: 6px; position: relative; }
+        .thumb-preview img { width: 100%; height: 100%; object-fit: cover; }
+        .auto-badge { position: absolute; top: 6px; left: 6px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; font-size: 9px; padding: 2px 8px; border-radius: 2px; font-family: 'Cinzel', serif; letter-spacing: 1px; text-transform: uppercase; }
+        .modal-btns { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; }
+        .btn-cancel { padding: 10px 20px; background: rgba(255,255,255,0.05); color: rgba(240,230,211,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; font-size: 13px; cursor: pointer; font-family: 'Nunito', sans-serif; }
+        .progress-wrap { margin-top: 16px; }
+        .progress-bar { width: 100%; height: 5px; background: #2a2a2a; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(to right, #c0392b, #c9a84c); border-radius: 3px; transition: width 0.3s; }
+
+        @media (max-width: 768px) {
+          .series-hero { padding: 80px 20px 32px; min-height: 300px; }
+          .series-hero-content { flex-direction: column; gap: 16px; }
+          .series-poster { width: 100px; height: 145px; }
+          .ep-thumb { width: 90px; height: 51px; }
+          .ep-title { font-size: 13px; }
+        }
+      `}</style>
+
+      <Navbar />
+
+      {/* Hero */}
+      <div className="series-hero">
+        {series.thumbnail_url && (
+          <div className="series-hero-bg" style={{ backgroundImage: `url(${getStorageUrl(series.thumbnail_url)})` }} />
+        )}
+        <div className="series-hero-overlay" />
+        <div className="series-hero-content">
+          <div className="series-poster">
+            {series.thumbnail_url
+              ? <img src={getStorageUrl(series.thumbnail_url)} alt={series.title} />
+              : <div className="series-poster-empty">📺</div>
+            }
+          </div>
+          <div className="series-info">
+            <div className="series-cat-badge">{series.category}</div>
+            <h1 className="series-name">{series.title}</h1>
+            {series.description && <p className="series-desc">{series.description}</p>}
+            <div className="series-stats">
+              <div className="series-stat"><span>{seasons.length}</span> Season{seasons.length !== 1 ? 's' : ''}</div>
+              <div className="series-stat">
+                <span>{seasons.reduce((acc, s) => acc + s.episodes.length, 0)}</span> Episodes
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="series-body">
+
+        {/* Season tabs */}
+        {seasons.length > 0 && (
+          <div className="season-tabs">
+            {seasons.map((s, i) => (
+              <button
+                key={s.id}
+                className={`season-tab ${activeSeason === i ? 'active' : ''}`}
+                onClick={() => setActiveSeason(i)}
+              >
+                {s.title || `Season ${s.season_number}`}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Admin actions */}
+        {isAdmin && (
+          <div className="season-actions">
+            <button className="btn-sm btn-gold" onClick={() => setShowAddSeason(true)}>
+              ＋ Add Season
+            </button>
+            {currentSeason && (
+              <button className="btn-sm btn-red" onClick={() => {
+                setSelectedSeasonId(currentSeason.id)
+                const nextEp = (currentSeason.episodes?.length || 0) + 1
+                setEpForm(f => ({ ...f, episode_number: nextEp }))
+                setShowUploadEp(true)
+              }}>
+                ⬆ Upload Episode
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Episodes list */}
+        {seasons.length === 0 ? (
+          <div className="empty-eps">
+            <div style={{ fontSize: '48px', opacity: 0.3, marginBottom: '16px' }}>📺</div>
+            <p style={{ fontFamily: "'Cinzel', serif", letterSpacing: '1px' }}>No seasons yet</p>
+            {isAdmin && <p style={{ fontSize: '13px', marginTop: '8px' }}>Add a season to get started</p>}
+          </div>
+        ) : currentSeason?.episodes?.length === 0 ? (
+          <div className="empty-eps">
+            <div style={{ fontSize: '48px', opacity: 0.3, marginBottom: '16px' }}>🎬</div>
+            <p style={{ fontFamily: "'Cinzel', serif", letterSpacing: '1px' }}>No episodes in this season</p>
+            {isAdmin && <p style={{ fontSize: '13px', marginTop: '8px' }}>Upload the first episode!</p>}
+          </div>
+        ) : (
+          <div className="ep-list">
+            {currentSeason?.episodes?.map((ep: any) => (
+              <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Link href={`/watch/episode/${ep.id}`} className="ep-item" style={{ flex: 1 }}>
+                  <div className="ep-num">{ep.episode_number}</div>
+                  <div className="ep-thumb">
+                    {ep.thumbnail_url
+                      ? <img src={getStorageUrl(ep.thumbnail_url)} alt={ep.title} />
+                      : <div className="ep-thumb-empty">🎬</div>
+                    }
+                  </div>
+                  <div className="ep-info">
+                    <div className="ep-title">{ep.title}</div>
+                    {ep.description && <div className="ep-desc">{ep.description}</div>}
+                  </div>
+                </Link>
+                {isAdmin && (
+                  <button
+                    className="ep-del-btn"
+                    onClick={() => handleDeleteEpisode(ep.id, currentSeason.id)}
+                    title="Delete episode"
+                  >🗑</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Add Season Modal */}
+      {showAddSeason && (
+        <div className="modal-overlay" onClick={() => setShowAddSeason(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2 className="modal-title">Add Season</h2>
+            <div className="field">
+              <label>Season Number</label>
+              <input type="number" value={newSeasonNum} onChange={e => setNewSeasonNum(Number(e.target.value))} min={1} />
+            </div>
+            <div className="field">
+              <label>Season Title (optional)</label>
+              <input placeholder={`Season ${newSeasonNum}`} value={newSeasonTitle} onChange={e => setNewSeasonTitle(e.target.value)} />
+            </div>
+            <div className="modal-btns">
+              <button className="btn-cancel" onClick={() => setShowAddSeason(false)}>Cancel</button>
+              <button className="btn-sm btn-red" onClick={handleAddSeason}>Add Season</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Episode Modal */}
+      {showUploadEp && (
+        <div className="modal-overlay" onClick={() => !uploading && setShowUploadEp(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2 className="modal-title">Upload Episode</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="field">
+                <label>Episode Number</label>
+                <input type="number" value={epForm.episode_number} onChange={e => setEpForm(f => ({ ...f, episode_number: Number(e.target.value) }))} min={1} />
+              </div>
+              <div className="field">
+                <label>Title</label>
+                <input placeholder="Episode title" value={epForm.title} onChange={e => setEpForm(f => ({ ...f, title: e.target.value }))} />
+              </div>
+            </div>
+            <div className="field">
+              <label>Description</label>
+              <textarea placeholder="What happens in this episode?" value={epForm.description} onChange={e => setEpForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label>Video File</label>
+              <input type="file" accept="video/*" onChange={e => {
+                const f = e.target.files?.[0] || null
+                setVideoFile(f)
+                setAutoThumb(null)
+                if (f) generateThumbnail(f)
+              }} />
+            </div>
+            {(autoThumb || thumbFile) && (
+              <div className="field">
+                <label>Thumbnail Preview</label>
+                <div className="thumb-preview">
+                  <img src={thumbFile ? URL.createObjectURL(thumbFile) : autoThumb!} alt="thumb" />
+                  {!thumbFile && <div className="auto-badge">Auto</div>}
+                </div>
+              </div>
+            )}
+            <div className="field">
+              <label>Custom Thumbnail (optional)</label>
+              <input type="file" accept="image/*" onChange={e => setThumbFile(e.target.files?.[0] || null)} />
+            </div>
+            {uploading && (
+              <div className="progress-wrap">
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px', color: 'rgba(240,230,211,0.5)' }}>
+                  <span>{progressPhase}</span>
+                  <span style={{ color: '#c9a84c' }}>{progress}%</span>
+                </div>
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            )}
+            <div className="modal-btns">
+              <button className="btn-cancel" onClick={() => !uploading && setShowUploadEp(false)} disabled={uploading}>Cancel</button>
+              <button className="btn-sm btn-red" onClick={handleUploadEpisode} disabled={uploading || !videoFile || !epForm.title}>
+                {uploading ? progressPhase || 'Uploading...' : 'Upload Episode'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

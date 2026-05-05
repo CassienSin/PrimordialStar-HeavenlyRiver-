@@ -3,9 +3,9 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import Navbar from '../../components/Navbar'
 import { getStorageUrl } from '../../lib/storage'
+import Link from 'next/link'
 
 export default function PartyRoomPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
@@ -36,10 +36,8 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
       if (!session) { router.push('/login'); return }
       setUser(session.user)
 
-      // Auto join party
       await supabase.from('party_members').upsert({ party_id: partyId, user_id: session.user.id })
 
-      // Load party
       const { data: partyData } = await supabase
         .from('parties')
         .select('*, videos(id, title, video_url, thumbnail_url)')
@@ -47,14 +45,12 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
         .single()
       setParty(partyData)
 
-      // Load members
       const { data: membersData } = await supabase
         .from('party_members')
         .select('*, profiles(id, nickname, username, avatar_url)')
         .eq('party_id', partyId)
       setMembers(membersData || [])
 
-      // Load messages
       const { data: messagesData } = await supabase
         .from('party_messages')
         .select('*, profiles(nickname, username, avatar_url)')
@@ -63,70 +59,105 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
         .limit(100)
       setMessages(messagesData || [])
 
-      // Load all videos for selection
       const { data: videosData } = await supabase.from('videos').select('*')
       setVideos(videosData || [])
     }
     load()
 
-    // Realtime subscriptions
     const partySub = supabase
-        .channel(`party_${partyId}_room`)
-        .on('postgres_changes', {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'parties',
-            filter: `id=eq.${partyId}`
-        }, payload => {
-            setParty((prev: any) => ({
-            ...prev,
-            ...payload.new,
-            videos: prev?.videos // Keep the videos relation
-            }))
-        })
-        .on('postgres_changes', {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'party_messages',
-            filter: `party_id=eq.${partyId}`
-        }, async payload => {
-            const { data } = await supabase
-            .from('party_messages')
-            .select('*, profiles(nickname, username, avatar_url)')
-            .eq('id', payload.new.id)
+      .channel(`party_${partyId}_room`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'parties',
+        filter: `id=eq.${partyId}`
+      }, payload => {
+        setParty((prev: any) => ({ ...prev, ...payload.new, videos: prev?.videos }))
+      })
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'party_messages',
+        filter: `party_id=eq.${partyId}`
+      }, async payload => {
+        const { data } = await supabase
+          .from('party_messages')
+          .select('*, profiles(nickname, username, avatar_url)')
+          .eq('id', payload.new.id)
+          .single()
+        if (data) setMessages(prev => [...prev, data])
+      })
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'party_members',
+        filter: `party_id=eq.${partyId}`
+      }, async () => {
+        const { data } = await supabase
+          .from('party_members')
+          .select('*, profiles(id, nickname, username, avatar_url)')
+          .eq('party_id', partyId)
+        setMembers(data || [])
+      })
+      .subscribe()
+
+          // Periodic resync for non-hosts
+        const resyncInterval = setInterval(async () => {
+          if (!videoRef.current || isHost) return
+          const { data: fresh } = await supabase
+            .from('parties')
+            .select('is_playing, playback_time')
+            .eq('id', partyId)
             .single()
-            if (data) setMessages(prev => [...prev, data])
-        })
-        .on('postgres_changes', {
-            event: '*',
-            schema: 'public',
-            table: 'party_members',
-            filter: `party_id=eq.${partyId}`
-        }, async () => {
-            const { data } = await supabase
-            .from('party_members')
-            .select('*, profiles(id, nickname, username, avatar_url)')
-            .eq('party_id', partyId)
-            setMembers(data || [])
-        })
-        .subscribe()
+          if (!fresh || !videoRef.current) return
+          const diff = Math.abs(videoRef.current.currentTime - (fresh.playback_time || 0))
+          if (diff > 3) videoRef.current.currentTime = fresh.playback_time || 0
+          if (fresh.is_playing && videoRef.current.paused) videoRef.current.play().catch(() => {})
+          else if (!fresh.is_playing && !videoRef.current.paused) videoRef.current.pause()
+        }, 5000)
+
+        return () => {
+          supabase.removeChannel(partySub)
+          clearInterval(resyncInterval)
+        }
 
     return () => { supabase.removeChannel(partySub) }
   }, [partyId, router])
 
-  // Auto scroll chat
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
   }, [messages])
 
-  // Sync video playback
-  useEffect(() => {
-    if (!videoRef.current || !party) return
-    const diff = Math.abs(videoRef.current.currentTime - party.playback_time)
-    if (diff > 2) videoRef.current.currentTime = party.playback_time
-    if (party.is_playing) videoRef.current.play().catch(() => {})
-    else videoRef.current.pause()
-  }, [party?.is_playing, party?.playback_time])
+      // Main sync effect
+      useEffect(() => {
+        if (!videoRef.current || !party?.videos) return
+        const video = videoRef.current
+
+        const doSync = () => {
+          const diff = Math.abs(video.currentTime - (party.playback_time || 0))
+          if (diff > 2) video.currentTime = party.playback_time || 0
+          if (party.is_playing) {
+            video.play().catch(() => {})
+          } else {
+            video.pause()
+          }
+        }
+
+        // Try immediately
+        doSync()
+
+        // Also try after canplay in case video isn't loaded
+        video.addEventListener('canplay', doSync, { once: true })
+        return () => video.removeEventListener('canplay', doSync)
+      }, [party?.is_playing, party?.playback_time, party?.video_id])
+
+      // Sync on new video source load
+      useEffect(() => {
+        if (!videoRef.current || !party?.videos) return
+        const video = videoRef.current
+
+        const onMeta = () => {
+          video.currentTime = party.playback_time || 0
+          if (party.is_playing) video.play().catch(() => {})
+        }
+
+        video.addEventListener('loadedmetadata', onMeta, { once: true })
+        return () => video.removeEventListener('loadedmetadata', onMeta)
+      }, [party?.video_id])
 
   const handlePlay = async () => {
     if (!isHost) return
@@ -167,7 +198,6 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
   const handleLeave = async () => {
     await supabase.from('party_members').delete()
       .eq('party_id', partyId).eq('user_id', user.id)
-
     if (isHost && members.length > 1) {
       const nextHost = members.find((m: any) => m.user_id !== user.id)
       if (nextHost) await supabase.from('parties').update({ host_id: nextHost.user_id }).eq('id', partyId)
@@ -190,7 +220,6 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
       .select('id')
       .or(`username.eq.${inviteUserInput},nickname.eq.${inviteUserInput}`)
       .single()
-
     if (!profile) { setInviteMsg('User not found'); return }
     await supabase.from('party_members').upsert({ party_id: partyId, user_id: profile.id })
     setInviteMsg('User added!')
@@ -210,43 +239,128 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
   )
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0812', color: '#f0e6d3', fontFamily: "'Nunito', sans-serif", display: 'flex', flexDirection: 'column' }}>
+    <div style={{
+      height: '100vh',
+      background: '#0a0812',
+      color: '#f0e6d3',
+      fontFamily: "'Nunito', sans-serif",
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      paddingTop: '70px',
+    }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Nunito:wght@300;400;600;700&display=swap');
 
-        .party-room { display: grid; grid-template-columns: 1fr 320px; gap: 0; height: calc(100vh - 70px); margin-top: 70px; }
-        .party-left { display: flex; flex-direction: column; overflow: hidden; }
-        .party-video-wrap { background: #000; position: relative; flex-shrink: 0; }
-        .party-video-wrap video { width: 100%; max-height: 55vh; display: block; }
-        .party-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.2s; }
-        .party-video-wrap:hover .party-overlay { opacity: 1; }
-        .host-only-msg { font-size: 12px; color: rgba(240,230,211,0.4); text-align: center; margin-top: 4px; }
+        .party-room {
+          display: grid;
+          grid-template-columns: 1fr 320px;
+          flex: 1;
+          overflow: hidden;
+          height: calc(100vh - 70px);
+        }
 
-        .party-info { padding: 16px 20px; border-bottom: 1px solid rgba(201,168,76,0.1); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: #0f0c18; }
-        .party-info-name { font-family: 'Cinzel', serif; font-size: 18px; color: #f0e6d3; letter-spacing: 1px; }
+        .party-left {
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          height: 100%;
+          min-height: 0;
+        }
+
+        .party-info {
+          padding: 12px 20px;
+          border-bottom: 1px solid rgba(201,168,76,0.1);
+          display: flex; align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap; gap: 10px;
+          background: #0f0c18;
+          flex-shrink: 0;
+        }
+        .party-info-name {
+          font-family: 'Cinzel', serif; font-size: 17px;
+          color: #f0e6d3; letter-spacing: 1px;
+        }
         .party-info-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-        .btn-sm { padding: 7px 14px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'Nunito', sans-serif; letter-spacing: 0.5px; transition: all 0.2s; border: none; }
-        .btn-sm.gold { background: rgba(201,168,76,0.1); color: #c9a84c; border: 1px solid rgba(201,168,76,0.25); }
-        .btn-sm.gold:hover { background: rgba(201,168,76,0.2); }
-        .btn-sm.red { background: rgba(192,57,43,0.2); color: #e74c3c; border: 1px solid rgba(192,57,43,0.3); }
-        .btn-sm.red:hover { background: rgba(192,57,43,0.3); }
-        .btn-sm.green { background: rgba(39,174,96,0.15); color: #2ecc71; border: 1px solid rgba(39,174,96,0.25); }
 
-        .no-video { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: rgba(240,230,211,0.3); }
-        .no-video-icon { font-size: 52px; opacity: 0.3; }
+        .party-video-area {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          background: #000;
+          overflow: hidden;
+          position: relative;
+          min-height: 0;
+        }
+        .party-video-area video {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          display: block;
+          flex: 1;
+          min-height: 0;
+        }
+        .host-only-msg {
+          position: absolute; bottom: 12px; left: 50%;
+          transform: translateX(-50%);
+          font-size: 12px; color: rgba(240,230,211,0.4);
+          background: rgba(10,8,18,0.7);
+          padding: 4px 12px; border-radius: 20px;
+          white-space: nowrap;
+        }
+        .no-video {
+          flex: 1; display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          gap: 16px; color: rgba(240,230,211,0.3);
+          background: #0a0812;
+        }
 
         /* Right sidebar */
-        .party-right { background: #0f0c18; border-left: 1px solid rgba(201,168,76,0.1); display: flex; flex-direction: column; }
-        .sidebar-tabs { display: flex; border-bottom: 1px solid rgba(201,168,76,0.1); }
-        .sidebar-tab { flex: 1; padding: 14px; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; color: rgba(240,230,211,0.4); border-bottom: 2px solid transparent; transition: all 0.2s; background: none; border-top: none; border-left: none; border-right: none; font-family: 'Nunito', sans-serif; }
+        .party-right {
+          background: #0f0c18;
+          border-left: 1px solid rgba(201,168,76,0.1);
+          display: flex; flex-direction: column;
+          height: 100%; overflow: hidden;
+        }
+        .sidebar-tabs {
+          display: flex;
+          border-bottom: 1px solid rgba(201,168,76,0.1);
+          flex-shrink: 0;
+        }
+        .sidebar-tab {
+          flex: 1; padding: 13px 8px;
+          text-align: center; font-size: 11px;
+          font-weight: 700; letter-spacing: 1px;
+          text-transform: uppercase; cursor: pointer;
+          color: rgba(240,230,211,0.4);
+          border-bottom: 2px solid transparent;
+          transition: all 0.2s; background: none;
+          border-top: none; border-left: none; border-right: none;
+          font-family: 'Nunito', sans-serif;
+        }
         .sidebar-tab.active { color: #c9a84c; border-bottom-color: #c9a84c; }
 
         /* Chat */
-        .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .chat-messages {
+          flex: 1; overflow-y: auto;
+          padding: 16px;
+          display: flex; flex-direction: column;
+          gap: 12px; min-height: 0;
+        }
         .chat-msg { display: flex; gap: 10px; }
-        .chat-avatar { width: 30px; height: 30px; border-radius: 4px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: 'Cinzel', serif; overflow: hidden; }
+        .chat-avatar {
+          width: 30px; height: 30px; border-radius: 4px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; font-size: 12px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0; font-family: 'Cinzel', serif; overflow: hidden;
+        }
         .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .chat-bubble { background: #16121f; border-radius: 0 8px 8px 8px; padding: 8px 12px; max-width: 220px; border: 1px solid rgba(201,168,76,0.07); }
+        .chat-bubble {
+          background: #16121f; border-radius: 0 8px 8px 8px;
+          padding: 8px 12px; max-width: 220px;
+          border: 1px solid rgba(201,168,76,0.07);
+        }
         .chat-name { font-size: 11px; color: #c9a84c; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
         .chat-text { font-size: 14px; color: #f0e6d3; line-height: 1.4; word-break: break-word; }
         .chat-time { font-size: 10px; color: rgba(240,230,211,0.2); margin-top: 4px; }
@@ -255,43 +369,127 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
         .chat-own .chat-name { color: #e74c3c; text-align: right; }
         .chat-own .chat-time { text-align: right; }
 
-        .chat-input-wrap { padding: 12px 16px; border-top: 1px solid rgba(201,168,76,0.1); display: flex; gap: 8px; }
-        .chat-input { flex: 1; padding: 10px 14px; background: #16121f; border: 1px solid rgba(201,168,76,0.12); border-radius: 6px; color: #f0e6d3; font-size: 14px; font-family: 'Nunito', sans-serif; outline: none; transition: border-color 0.2s; }
+        .chat-input-wrap {
+          padding: 12px 14px;
+          border-top: 1px solid rgba(201,168,76,0.1);
+          display: flex; gap: 8px; flex-shrink: 0;
+        }
+        .chat-input {
+          flex: 1; padding: 10px 14px;
+          background: #16121f; border: 1px solid rgba(201,168,76,0.12);
+          border-radius: 6px; color: #f0e6d3;
+          font-size: 14px; font-family: 'Nunito', sans-serif;
+          outline: none; transition: border-color 0.2s;
+        }
         .chat-input:focus { border-color: rgba(201,168,76,0.35); }
         .chat-input::placeholder { color: rgba(240,230,211,0.15); }
-        .chat-send { padding: 10px 14px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+        .chat-send {
+          padding: 10px 14px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; border: none; border-radius: 6px;
+          font-size: 14px; cursor: pointer; transition: all 0.2s;
+          flex-shrink: 0;
+        }
         .chat-send:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 
         /* Members */
-        .members-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-        .member-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: #16121f; border-radius: 8px; border: 1px solid rgba(201,168,76,0.07); }
-        .member-avatar { width: 36px; height: 36px; border-radius: 5px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: 'Cinzel', serif; overflow: hidden; }
+        .members-list {
+          flex: 1; overflow-y: auto;
+          padding: 16px; display: flex;
+          flex-direction: column; gap: 10px;
+          min-height: 0;
+        }
+        .member-item {
+          display: flex; align-items: center; gap: 12px;
+          padding: 10px 12px; background: #16121f;
+          border-radius: 8px; border: 1px solid rgba(201,168,76,0.07);
+        }
+        .member-avatar {
+          width: 36px; height: 36px; border-radius: 5px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; font-size: 14px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0; font-family: 'Cinzel', serif; overflow: hidden;
+        }
         .member-avatar img { width: 100%; height: 100%; object-fit: cover; }
         .member-name { font-size: 14px; color: #f0e6d3; font-weight: 600; }
         .member-badge { font-size: 10px; color: #c9a84c; letter-spacing: 1px; text-transform: uppercase; font-family: 'Cinzel', serif; }
 
+        /* Buttons */
+        .btn-sm {
+          padding: 7px 14px; border-radius: 4px;
+          font-size: 12px; font-weight: 700; cursor: pointer;
+          font-family: 'Nunito', sans-serif; letter-spacing: 0.5px;
+          transition: all 0.2s; border: none; white-space: nowrap;
+        }
+        .btn-sm.gold { background: rgba(201,168,76,0.1); color: #c9a84c; border: 1px solid rgba(201,168,76,0.25); }
+        .btn-sm.gold:hover { background: rgba(201,168,76,0.2); }
+        .btn-sm.red { background: rgba(192,57,43,0.2); color: #e74c3c; border: 1px solid rgba(192,57,43,0.3); }
+        .btn-sm.red:hover { background: rgba(192,57,43,0.3); }
+
         /* Invite section */
-        .invite-section { padding: 16px; border-top: 1px solid rgba(201,168,76,0.1); }
-        .invite-code-box { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #16121f; border: 1px solid rgba(201,168,76,0.15); border-radius: 6px; margin-bottom: 12px; }
-        .invite-code-text { flex: 1; font-family: 'Courier New', monospace; font-size: 16px; color: #c9a84c; letter-spacing: 2px; font-weight: 700; }
+        .invite-wrap { padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; flex: 1; min-height: 0; }
+        .invite-code-box {
+          display: flex; align-items: center; gap: 8px;
+          padding: 12px 14px; background: #16121f;
+          border: 1px solid rgba(201,168,76,0.15); border-radius: 6px;
+        }
+        .invite-code-text {
+          flex: 1; font-family: 'Courier New', monospace;
+          font-size: 18px; color: #c9a84c;
+          letter-spacing: 3px; font-weight: 700;
+        }
         .invite-username-row { display: flex; gap: 8px; }
-        .invite-username-input { flex: 1; padding: 9px 12px; background: #16121f; border: 1px solid rgba(201,168,76,0.12); border-radius: 6px; color: #f0e6d3; font-size: 13px; font-family: 'Nunito', sans-serif; outline: none; }
+        .invite-username-input {
+          flex: 1; padding: 10px 12px; background: #16121f;
+          border: 1px solid rgba(201,168,76,0.12); border-radius: 6px;
+          color: #f0e6d3; font-size: 13px;
+          font-family: 'Nunito', sans-serif; outline: none;
+        }
+        .invite-username-input:focus { border-color: rgba(201,168,76,0.35); }
         .invite-username-input::placeholder { color: rgba(240,230,211,0.2); }
+        .invite-label { font-size: 11px; color: rgba(240,230,211,0.4); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
 
         /* Video select modal */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .modal-big { background: #16121f; border: 1px solid rgba(201,168,76,0.15); border-radius: 10px; padding: 28px; max-width: 700px; width: 100%; max-height: 80vh; overflow-y: auto; }
+        .modal-overlay {
+          position: fixed; inset: 0;
+          background: rgba(0,0,0,0.9); z-index: 300;
+          display: flex; align-items: center;
+          justify-content: center; padding: 20px;
+        }
+        .modal-big {
+          background: #16121f; border: 1px solid rgba(201,168,76,0.15);
+          border-radius: 10px; padding: 28px;
+          max-width: 700px; width: 100%;
+          max-height: 80vh; overflow-y: auto;
+        }
         .modal-big-title { font-family: 'Cinzel', serif; font-size: 20px; color: #f0e6d3; margin: 0 0 20px; letter-spacing: 1px; }
+        .modal-close {
+          position: absolute; top: 16px; right: 16px;
+          background: none; border: none; color: rgba(240,230,211,0.4);
+          font-size: 20px; cursor: pointer;
+        }
         .video-select-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-        .video-select-card { background: #0f0c18; border: 1px solid rgba(201,168,76,0.08); border-radius: 6px; overflow: hidden; cursor: pointer; transition: all 0.2s; }
+        .video-select-card {
+          background: #0f0c18; border: 1px solid rgba(201,168,76,0.08);
+          border-radius: 6px; overflow: hidden; cursor: pointer;
+          transition: all 0.2s;
+        }
         .video-select-card:hover { border-color: rgba(201,168,76,0.3); transform: scale(1.03); }
         .video-select-thumb { width: 100%; aspect-ratio: 16/9; background: #1e1828; overflow: hidden; }
         .video-select-thumb img { width: 100%; height: 100%; object-fit: cover; }
         .video-select-title { padding: 8px 10px; font-size: 12px; color: #f0e6d3; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+        /* Mobile */
         @media (max-width: 768px) {
-          .party-room { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-          .party-right { height: 50vh; }
+          .party-room {
+            grid-template-columns: 1fr;
+            grid-template-rows: auto 1fr;
+            height: calc(100vh - 64px);
+          }
+          .party-left { height: auto; flex-shrink: 0; }
+          .party-video-area { max-height: 35vh; }
+          .party-right { height: 100%; }
         }
       `}</style>
 
@@ -304,54 +502,54 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
             <div>
               <div className="party-info-name">{party.name}</div>
               {party.videos && (
-                <div style={{ fontSize: '12px', color: 'rgba(240,230,211,0.4)', marginTop: '4px' }}>
-                  Now watching: {party.videos.title}
+                <div style={{ fontSize: '12px', color: 'rgba(240,230,211,0.4)', marginTop: '2px' }}>
+                  ▶ {party.videos.title}
                 </div>
               )}
             </div>
             <div className="party-info-actions">
               {isHost && (
-                <button className="btn-sm gold" onClick={() => setShowVideoSelect(true)}>
-                  🎬 Select Video
-                </button>
+                <button className="btn-sm gold" onClick={() => setShowVideoSelect(true)}>🎬 Select Video</button>
               )}
               <button className="btn-sm gold" onClick={handleCopyInvite}>
                 {inviteCopied ? 'Copied!' : 'Copy Code'}
               </button>
-              <button className="btn-sm red" onClick={handleLeave}>
-                Leave
-              </button>
+              <button className="btn-sm red" onClick={handleLeave}>Leave</button>
             </div>
           </div>
 
           {party.videos ? (
-            <div className="party-video-wrap">
-                <video
+            <div className="party-video-area">
+              <video
                 ref={videoRef}
                 src={getStorageUrl(party.videos.video_url)}
-                style={{ width: '100%', maxHeight: '55vh' }}
                 onPlay={isHost ? handlePlay : undefined}
                 onPause={isHost ? handlePause : undefined}
                 onSeeked={isHost ? async () => {
-                    await supabase.from('parties').update({
+                  await supabase.from('parties').update({
                     playback_time: videoRef.current?.currentTime || 0
-                    }).eq('id', partyId)
+                  }).eq('id', partyId)
                 } : undefined}
                 controls={isHost}
                 playsInline
-                />
-                {!isHost && (
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  display: 'block',
+                  background: '#000',
+                }}
+              />
+              {!isHost && (
                 <p className="host-only-msg">🎬 Only the host controls playback</p>
-                )}
+              )}
             </div>
-            ) : (
+          ) : (
             <div className="no-video">
-              <div className="no-video-icon">🎬</div>
+              <div style={{ fontSize: '52px', opacity: 0.3 }}>🎬</div>
               <p>{isHost ? 'Select a video to start watching!' : 'Waiting for host to select a video...'}</p>
               {isHost && (
-                <button className="btn-sm gold" onClick={() => setShowVideoSelect(true)}>
-                  🎬 Select Video
-                </button>
+                <button className="btn-sm gold" onClick={() => setShowVideoSelect(true)}>🎬 Select Video</button>
               )}
             </div>
           )}
@@ -384,15 +582,16 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
       {/* Video Select Modal */}
       {showVideoSelect && (
         <div className="modal-overlay" onClick={() => setShowVideoSelect(false)}>
-          <div className="modal-big" onClick={e => e.stopPropagation()}>
+          <div className="modal-big" style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
             <h2 className="modal-big-title">🎬 Select a Video</h2>
+            <button className="modal-close" onClick={() => setShowVideoSelect(false)}>✕</button>
             <div className="video-select-grid">
               {videos.map(v => (
                 <div key={v.id} className="video-select-card" onClick={() => handleSelectVideo(v)}>
                   <div className="video-select-thumb">
                     {v.thumbnail_url
                       ? <img src={getStorageUrl(v.thumbnail_url)} alt={v.title} />
-                      : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px' }}>🎬</div>
+                      : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', background: '#1e1828' }}>🎬</div>
                     }
                   </div>
                   <div className="video-select-title">{v.title}</div>
@@ -408,6 +607,12 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
 
 function PartyRightPanel({ messages, members, user, message, setMessage, handleSendMessage, chatRef, inviteCode, inviteUserInput, setInviteUserInput, handleInviteByUsername, inviteMsg, handleCopyInvite, inviteCopied, getName, isHost, hostId }: any) {
   const [tab, setTab] = useState<'chat' | 'members' | 'invite'>('chat')
+
+  const getAvatarSrc = (url: string) => {
+    if (!url) return ''
+    if (url.startsWith('http')) return url
+    return `${process.env.NEXT_PUBLIC_MINIO_PUBLIC_URL}/heavenlyriver/${url}`
+  }
 
   return (
     <>
@@ -437,7 +642,7 @@ function PartyRightPanel({ messages, members, user, message, setMessage, handleS
                 <div key={msg.id} className={`chat-msg ${isOwn ? 'chat-own' : ''}`}>
                   <div className="chat-avatar">
                     {msg.profiles?.avatar_url
-                      ? <img src={msg.profiles.avatar_url.startsWith('http') ? msg.profiles.avatar_url : `${process.env.NEXT_PUBLIC_MINIO_PUBLIC_URL}/heavenlyriver/${msg.profiles.avatar_url}`} alt="" />
+                      ? <img src={getAvatarSrc(msg.profiles.avatar_url)} alt="" />
                       : getName(msg.profiles).charAt(0).toUpperCase()
                     }
                   </div>
@@ -471,7 +676,7 @@ function PartyRightPanel({ messages, members, user, message, setMessage, handleS
             <div key={m.id} className="member-item">
               <div className="member-avatar">
                 {m.profiles?.avatar_url
-                  ? <img src={m.profiles.avatar_url.startsWith('http') ? m.profiles.avatar_url : `${process.env.NEXT_PUBLIC_MINIO_PUBLIC_URL}/heavenlyriver/${m.profiles.avatar_url}`} alt="" />
+                  ? <img src={getAvatarSrc(m.profiles.avatar_url)} alt="" />
                   : getName(m.profiles).charAt(0).toUpperCase()
                 }
               </div>
@@ -485,20 +690,22 @@ function PartyRightPanel({ messages, members, user, message, setMessage, handleS
       )}
 
       {tab === 'invite' && (
-        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="invite-wrap">
           <div>
-            <p style={{ fontSize: '11px', color: 'rgba(240,230,211,0.4)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>Invite Code</p>
+            <p className="invite-label">Invite Code</p>
             <div className="invite-code-box">
               <span className="invite-code-text">{inviteCode}</span>
               <button className="btn-sm gold" onClick={handleCopyInvite}>
                 {inviteCopied ? '✅' : '📋'}
               </button>
             </div>
-            <p style={{ fontSize: '12px', color: 'rgba(240,230,211,0.3)', marginTop: '6px' }}>Share this code with friends to join</p>
+            <p style={{ fontSize: '12px', color: 'rgba(240,230,211,0.25)', marginTop: '8px' }}>
+              Share this code with friends to join the party
+            </p>
           </div>
 
           <div>
-            <p style={{ fontSize: '11px', color: 'rgba(240,230,211,0.4)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>Invite by Username</p>
+            <p className="invite-label">Invite by Username</p>
             <div className="invite-username-row">
               <input
                 className="invite-username-input"

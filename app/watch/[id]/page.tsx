@@ -3,6 +3,7 @@ import Link from 'next/link'
 import WatchClient from './WatchClient'
 import Navbar from '../../components/Navbar'
 import { getStorageUrl } from '../../lib/storage'
+import WatchlistButton from '../../components/WatchlistButton'
 
 export default async function WatchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

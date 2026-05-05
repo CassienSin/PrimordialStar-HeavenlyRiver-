@@ -1,23 +1,35 @@
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Nunito:wght@300;400;600;700&display=swap');
 @import "tailwindcss";
 
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 :root {
-  --red: #e50914;
-  --red-dark: #b20710;
-  --black: #0a0a0a;
-  --card: #141414;
-  --zinc: #2a2a2a;
+  --red: #c0392b;
+  --red-bright: #e74c3c;
+  --red-dark: #7b1a1a;
+  --gold: #c9a84c;
+  --gold-light: #f0c96a;
+  --gold-dim: #7a5c1e;
+  --bg: #0a0812;
+  --bg2: #110e1a;
+  --card: #16121f;
+  --ink: #1e1828;
+  --text: #f0e6d3;
+  --text-dim: rgba(240,230,211,0.45);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: var(--black);
-  color: white;
+  background: var(--bg);
+  color: var(--text);
   font-family: 'Nunito', sans-serif;
   margin: 0;
 }
 
 ::-webkit-scrollbar { height: 4px; width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--red); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 2px; }

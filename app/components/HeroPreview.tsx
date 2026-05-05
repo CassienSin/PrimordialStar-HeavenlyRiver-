@@ -38,12 +38,21 @@ export default function HeroPreview({ video }: { video: any }) {
         .mute-btn:hover { background: rgba(201,168,76,0.15); border-color: #c9a84c; }
 
         @media (max-width: 768px) {
-          .hero { height: 75vh; padding: 0 20px 60px; }
+          .hero { height: 70vh; padding: 0 16px 50px; }
           .hero-overlay { background: linear-gradient(to top, rgba(10,8,18,0.98) 20%, rgba(10,8,18,0.5) 60%, rgba(10,8,18,0.2)); }
+          .hero-title { font-size: clamp(24px, 7vw, 40px); margin-bottom: 10px; }
           .hero-desc { display: none; }
-          .btn-play { padding: 11px 22px; font-size: 14px; }
-          .btn-info { padding: 11px 22px; font-size: 14px; }
-          .mute-btn { bottom: 65px; right: 20px; width: 36px; height: 36px; font-size: 14px; }
+          .hero-badge { font-size: 10px; padding: 3px 10px; margin-bottom: 12px; }
+          .btn-play { padding: 10px 20px; font-size: 13px; }
+          .btn-info { padding: 10px 20px; font-size: 13px; }
+          .mute-btn { bottom: 55px; right: 16px; width: 34px; height: 34px; font-size: 13px; }
+        }
+
+        @media (max-width: 480px) {
+          .hero { height: 65vh; padding: 0 14px 44px; }
+          .hero-title { font-size: clamp(22px, 8vw, 36px); }
+          .btn-play { padding: 9px 18px; font-size: 12px; }
+          .btn-info { padding: 9px 18px; font-size: 12px; }
         }
       `}</style>
 

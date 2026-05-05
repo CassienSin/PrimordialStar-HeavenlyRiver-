@@ -18,7 +18,6 @@ export default function Navbar() {
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // Read cache IMMEDIATELY with user-specific keys
     const cachedUser = localStorage.getItem('hr_user')
     const cachedAdmin = localStorage.getItem('hr_admin')
     if (cachedUser) {
@@ -35,20 +34,14 @@ export default function Navbar() {
       if (session) {
         setUser(session.user)
         setLoading(false)
-
-        // Check if cached user is the SAME user
         const cachedUserRaw = localStorage.getItem('hr_user')
         const cachedUserId = cachedUserRaw ? JSON.parse(cachedUserRaw)?.id : null
-
-        // If different user logged in, clear shared cache
         if (cachedUserId && cachedUserId !== session.user.id) {
           localStorage.removeItem('hr_user')
           localStorage.removeItem('hr_admin')
           localStorage.removeItem(`hr_admin_${cachedUserId}`)
         }
-
         localStorage.setItem('hr_user', JSON.stringify(session.user))
-
         const cached = localStorage.getItem(`hr_admin_${session.user.id}`)
         if (cached !== null) {
           setAdmin(cached === 'true')
@@ -87,18 +80,14 @@ export default function Navbar() {
       if (session) {
         setUser(session.user)
         setLoading(false)
-
         const cachedUserRaw = localStorage.getItem('hr_user')
         const cachedUserId = cachedUserRaw ? JSON.parse(cachedUserRaw)?.id : null
-
         if (cachedUserId && cachedUserId !== session.user.id) {
           localStorage.removeItem('hr_user')
           localStorage.removeItem('hr_admin')
           localStorage.removeItem(`hr_admin_${cachedUserId}`)
         }
-
         localStorage.setItem('hr_user', JSON.stringify(session.user))
-
         const cached = localStorage.getItem(`hr_admin_${session.user.id}`)
         if (cached !== null) {
           setAdmin(cached === 'true')
@@ -148,6 +137,11 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [])
+
   const handleSignOut = async () => {
     await supabase.auth.signOut()
     router.push('/login')
@@ -166,92 +160,248 @@ export default function Navbar() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Nunito:wght@300;400;600;700&display=swap');
 
-        .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 0 48px; height: 70px; display: flex; align-items: center; justify-content: space-between; transition: background 0.4s, box-shadow 0.4s; }
-        .nav.scrolled { background: rgba(10,8,18,0.92); backdrop-filter: blur(16px); box-shadow: 0 1px 0 rgba(201,168,76,0.1), 0 4px 32px rgba(0,0,0,0.6); }
-        .nav:not(.scrolled) { background: linear-gradient(to bottom, rgba(10,8,18,0.85), transparent); }
+        .nav {
+          position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+          padding: 0 48px; height: 70px;
+          display: flex; align-items: center; justify-content: space-between;
+          transition: background 0.4s, box-shadow 0.4s;
+          width: 100%; max-width: 100vw;
+        }
+        .nav.scrolled {
+          background: rgba(10,8,18,0.95);
+          backdrop-filter: blur(16px);
+          box-shadow: 0 1px 0 rgba(201,168,76,0.1), 0 4px 32px rgba(0,0,0,0.6);
+        }
+        .nav:not(.scrolled) {
+          background: linear-gradient(to bottom, rgba(10,8,18,0.9), transparent);
+        }
 
-        .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-        .nav-logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #c0392b, #7b1a1a); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 0 12px rgba(192,57,43,0.5); border: 1px solid rgba(201,168,76,0.3); flex-shrink: 0; }
-        .nav-logo-text { font-family: 'Cinzel', serif; font-size: 20px; color: #f0c96a; letter-spacing: 3px; text-shadow: 0 0 20px rgba(201,168,76,0.4); }
+        .nav-logo {
+          display: flex; align-items: center; gap: 8px;
+          text-decoration: none; flex-shrink: 0;
+        }
+        .nav-logo-icon {
+          width: 30px; height: 30px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          border-radius: 4px; display: flex; align-items: center;
+          justify-content: center; font-size: 15px;
+          box-shadow: 0 0 12px rgba(192,57,43,0.5);
+          border: 1px solid rgba(201,168,76,0.3); flex-shrink: 0;
+        }
+        .nav-logo-text {
+          font-family: 'Cinzel', serif; font-size: 18px;
+          color: #f0c96a; letter-spacing: 3px;
+          text-shadow: 0 0 20px rgba(201,168,76,0.4);
+          white-space: nowrap;
+        }
 
-        .nav-center { position: absolute; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; }
-        .nav-link { color: rgba(240,230,211,0.6); text-decoration: none; font-size: 12px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; padding: 6px 14px; border-radius: 3px; transition: all 0.2s; font-family: 'Nunito', sans-serif; position: relative; }
-        .nav-link::after { content: ''; position: absolute; bottom: 0; left: 50%; right: 50%; height: 1px; background: #c9a84c; transition: all 0.3s; }
+        .nav-center {
+          position: absolute; left: 50%; transform: translateX(-50%);
+          display: flex; gap: 4px; align-items: center;
+        }
+        .nav-link {
+          color: rgba(240,230,211,0.6); text-decoration: none;
+          font-size: 12px; font-weight: 600; letter-spacing: 1.5px;
+          text-transform: uppercase; padding: 6px 14px; border-radius: 3px;
+          transition: all 0.2s; font-family: 'Nunito', sans-serif;
+          position: relative; white-space: nowrap;
+        }
+        .nav-link::after {
+          content: ''; position: absolute; bottom: 0;
+          left: 50%; right: 50%; height: 1px; background: #c9a84c;
+          transition: all 0.3s;
+        }
         .nav-link:hover { color: #f0e6d3; }
         .nav-link:hover::after { left: 14px; right: 14px; }
 
-        .nav-right { display: flex; gap: 12px; align-items: center; }
-        .nav-upload-btn { display: flex; align-items: center; gap: 6px; padding: 7px 16px; background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.25); border-radius: 3px; color: #c9a84c; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; text-decoration: none; transition: all 0.2s; font-family: 'Nunito', sans-serif; }
+        .nav-right { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+        .nav-upload-btn {
+          display: flex; align-items: center; gap: 6px;
+          padding: 7px 14px;
+          background: rgba(201,168,76,0.1);
+          border: 1px solid rgba(201,168,76,0.25); border-radius: 3px;
+          color: #c9a84c; font-size: 11px; font-weight: 700;
+          letter-spacing: 1px; text-transform: uppercase;
+          text-decoration: none; transition: all 0.2s;
+          font-family: 'Nunito', sans-serif; white-space: nowrap;
+        }
         .nav-upload-btn:hover { background: rgba(201,168,76,0.18); border-color: #c9a84c; }
-        .nav-signin-btn { padding: 7px 20px; background: linear-gradient(135deg, #c0392b, #7b1a1a); border: 1px solid rgba(201,168,76,0.3); border-radius: 3px; color: #f0c96a; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; text-decoration: none; transition: all 0.2s; font-family: 'Nunito', sans-serif; }
+        .nav-signin-btn {
+          padding: 7px 18px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          border: 1px solid rgba(201,168,76,0.3); border-radius: 3px;
+          color: #f0c96a; font-size: 11px; font-weight: 700;
+          letter-spacing: 1px; text-transform: uppercase;
+          text-decoration: none; transition: all 0.2s;
+          font-family: 'Nunito', sans-serif; white-space: nowrap;
+        }
         .nav-signin-btn:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 
-        .avatar { width: 36px; height: 36px; border-radius: 4px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid rgba(201,168,76,0.25); transition: all 0.2s; font-family: 'Cinzel', serif; overflow: hidden; }
+        .avatar {
+          width: 36px; height: 36px; border-radius: 4px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; font-size: 15px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer; border: 1px solid rgba(201,168,76,0.25);
+          transition: all 0.2s; font-family: 'Cinzel', serif; overflow: hidden;
+          flex-shrink: 0;
+        }
         .avatar:hover { border-color: #c9a84c; box-shadow: 0 0 16px rgba(201,168,76,0.25); }
-        .avatar-skeleton { width: 36px; height: 36px; border-radius: 4px; background: linear-gradient(90deg, #16121f 25%, #1e1828 50%, #16121f 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        .avatar-skeleton {
+          width: 36px; height: 36px; border-radius: 4px;
+          background: linear-gradient(90deg, #16121f 25%, #1e1828 50%, #16121f 75%);
+          background-size: 200% 100%; animation: shimmer 1.5s infinite;
+          flex-shrink: 0;
+        }
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
         .dropdown-wrap { position: relative; }
-        .dropdown { position: absolute; top: calc(100% + 14px); right: 0; background: #0f0c18; border: 1px solid rgba(201,168,76,0.2); border-radius: 8px; min-width: 210px; overflow: hidden; box-shadow: 0 16px 48px rgba(0,0,0,0.9); animation: dropIn 0.2s ease; }
+        .dropdown {
+          position: absolute; top: calc(100% + 14px); right: 0;
+          background: #0f0c18; border: 1px solid rgba(201,168,76,0.2);
+          border-radius: 8px; min-width: 210px; overflow: hidden;
+          box-shadow: 0 16px 48px rgba(0,0,0,0.9); animation: dropIn 0.2s ease;
+        }
         @keyframes dropIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-        .dropdown-arrow { position: absolute; top: -6px; right: 14px; width: 11px; height: 11px; background: #0f0c18; border-left: 1px solid rgba(201,168,76,0.2); border-top: 1px solid rgba(201,168,76,0.2); transform: rotate(45deg); }
+        .dropdown-arrow {
+          position: absolute; top: -6px; right: 14px;
+          width: 11px; height: 11px; background: #0f0c18;
+          border-left: 1px solid rgba(201,168,76,0.2);
+          border-top: 1px solid rgba(201,168,76,0.2);
+          transform: rotate(45deg);
+        }
         .dropdown-header { padding: 14px 16px; border-bottom: 1px solid rgba(201,168,76,0.1); }
         .dropdown-avatar-row { display: flex; align-items: center; gap: 10px; }
-        .dropdown-avatar-big { width: 40px; height: 40px; border-radius: 5px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; font-size: 18px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-family: 'Cinzel', serif; flex-shrink: 0; border: 1px solid rgba(201,168,76,0.2); overflow: hidden; }
+        .dropdown-avatar-big {
+          width: 40px; height: 40px; border-radius: 5px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; font-size: 18px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          font-family: 'Cinzel', serif; flex-shrink: 0;
+          border: 1px solid rgba(201,168,76,0.2); overflow: hidden;
+        }
         .dropdown-email { font-size: 12px; color: rgba(240,230,211,0.35); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
         .dropdown-name { font-size: 13px; color: #f0e6d3; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .dropdown-item { display: flex; align-items: center; gap: 10px; padding: 11px 16px; color: rgba(240,230,211,0.75); text-decoration: none; font-size: 13px; font-weight: 600; transition: all 0.15s; cursor: pointer; width: 100%; text-align: left; background: none; border: none; font-family: 'Nunito', sans-serif; }
+        .dropdown-item {
+          display: flex; align-items: center; gap: 10px;
+          padding: 11px 16px; color: rgba(240,230,211,0.75);
+          text-decoration: none; font-size: 13px; font-weight: 600;
+          transition: all 0.15s; cursor: pointer; width: 100%;
+          text-align: left; background: none; border: none;
+          font-family: 'Nunito', sans-serif;
+        }
         .dropdown-item:hover { background: rgba(201,168,76,0.07); color: #f0e6d3; }
         .dropdown-item-icon { font-size: 14px; width: 20px; text-align: center; }
         .dropdown-divider { height: 1px; background: rgba(201,168,76,0.1); margin: 4px 0; }
         .dropdown-item.danger { color: rgba(231,76,60,0.8); }
         .dropdown-item.danger:hover { background: rgba(192,57,43,0.1); color: #e74c3c; }
 
-        .admin-badge { font-size: 9px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; padding: 2px 7px; border-radius: 2px; letter-spacing: 1px; text-transform: uppercase; font-family: 'Cinzel', serif; border: 1px solid rgba(201,168,76,0.3); white-space: nowrap; }
+        .admin-badge {
+          font-size: 9px; background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; padding: 2px 7px; border-radius: 2px;
+          letter-spacing: 1px; text-transform: uppercase;
+          font-family: 'Cinzel', serif; border: 1px solid rgba(201,168,76,0.3);
+          white-space: nowrap;
+        }
 
-        .hamburger { display: none; flex-direction: column; gap: 5px; cursor: pointer; padding: 4px; background: none; border: none; }
-        .hamburger span { display: block; width: 22px; height: 2px; background: #f0e6d3; border-radius: 2px; transition: all 0.3s; }
+        /* Hamburger */
+        .hamburger {
+          display: none; flex-direction: column; gap: 5px;
+          cursor: pointer; padding: 6px; background: none; border: none;
+          flex-shrink: 0;
+        }
+        .hamburger span {
+          display: block; width: 22px; height: 2px;
+          background: #f0e6d3; border-radius: 2px; transition: all 0.3s;
+        }
         .hamburger.open span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
         .hamburger.open span:nth-child(2) { opacity: 0; }
         .hamburger.open span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
 
-        .mobile-menu { display: none; position: fixed; top: 70px; left: 0; right: 0; background: rgba(10,8,18,0.98); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(201,168,76,0.1); padding: 20px; z-index: 99; flex-direction: column; gap: 4px; animation: slideDown 0.2s ease; }
+        /* Mobile menu */
+        .mobile-menu {
+          display: none; position: fixed; top: 70px; left: 0; right: 0;
+          background: rgba(10,8,18,0.98); backdrop-filter: blur(20px);
+          border-bottom: 1px solid rgba(201,168,76,0.1);
+          padding: 16px; z-index: 99; flex-direction: column; gap: 2px;
+          animation: slideDown 0.2s ease; max-height: calc(100vh - 70px);
+          overflow-y: auto;
+        }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .mobile-menu.open { display: flex; }
-        .mobile-link { display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: rgba(240,230,211,0.7); text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px; transition: all 0.2s; font-family: 'Nunito', sans-serif; letter-spacing: 0.5px; }
+        .mobile-link {
+          display: flex; align-items: center; gap: 12px;
+          padding: 13px 16px; color: rgba(240,230,211,0.7);
+          text-decoration: none; font-size: 15px; font-weight: 600;
+          border-radius: 6px; transition: all 0.2s;
+          font-family: 'Nunito', sans-serif; letter-spacing: 0.5px;
+        }
         .mobile-link:hover { background: rgba(201,168,76,0.08); color: #f0e6d3; }
-        .mobile-link-icon { font-size: 18px; width: 24px; text-align: center; }
-        .mobile-divider { height: 1px; background: rgba(201,168,76,0.1); margin: 8px 0; }
-        .mobile-signout { display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: rgba(231,76,60,0.8); font-size: 15px; font-weight: 600; border-radius: 6px; transition: all 0.2s; font-family: 'Nunito', sans-serif; cursor: pointer; background: none; border: none; width: 100%; text-align: left; }
+        .mobile-link-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+        .mobile-divider { height: 1px; background: rgba(201,168,76,0.1); margin: 6px 0; }
+        .mobile-signout {
+          display: flex; align-items: center; gap: 12px;
+          padding: 13px 16px; color: rgba(231,76,60,0.8);
+          font-size: 15px; font-weight: 600; border-radius: 6px;
+          transition: all 0.2s; font-family: 'Nunito', sans-serif;
+          cursor: pointer; background: none; border: none; width: 100%; text-align: left;
+        }
         .mobile-signout:hover { background: rgba(192,57,43,0.1); color: #e74c3c; }
-        .mobile-user-info { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 4px; }
-        .mobile-avatar { width: 44px; height: 44px; border-radius: 6px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; font-size: 20px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-family: 'Cinzel', serif; border: 1px solid rgba(201,168,76,0.2); flex-shrink: 0; overflow: hidden; }
-        .mobile-user-email { font-size: 12px; color: rgba(240,230,211,0.35); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mobile-user-info {
+          display: flex; align-items: center; gap: 12px;
+          padding: 12px 16px; margin-bottom: 4px;
+          background: rgba(201,168,76,0.04); border-radius: 8px;
+          border: 1px solid rgba(201,168,76,0.08);
+        }
+        .mobile-avatar {
+          width: 44px; height: 44px; border-radius: 6px;
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; font-size: 20px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          font-family: 'Cinzel', serif; border: 1px solid rgba(201,168,76,0.2);
+          flex-shrink: 0; overflow: hidden;
+        }
+        .mobile-user-email { font-size: 11px; color: rgba(240,230,211,0.3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
         .mobile-user-name { font-size: 15px; color: #f0e6d3; font-weight: 700; margin-bottom: 2px; }
 
-        @media (max-width: 768px) {
-          .nav { padding: 0 20px; }
+        /* Responsive breakpoints */
+        @media (max-width: 900px) {
+          .nav { padding: 0 24px; }
           .nav-center { display: none; }
+        }
+
+        @media (max-width: 768px) {
+          .nav { padding: 0 16px; height: 64px; }
+          .nav-logo-text { font-size: 15px; letter-spacing: 2px; }
+          .nav-logo-icon { width: 28px; height: 28px; font-size: 13px; }
           .nav-upload-btn { display: none; }
-          .nav-logo-text { font-size: 17px; letter-spacing: 2px; }
           .hamburger { display: flex; }
-          .desktop-right { display: none; }
+          .desktop-right { display: none !important; }
+          .mobile-menu { top: 64px; max-height: calc(100vh - 64px); }
+        }
+
+        @media (max-width: 380px) {
+          .nav { padding: 0 12px; }
+          .nav-logo-text { font-size: 13px; letter-spacing: 1px; }
         }
       `}</style>
 
       <nav className={`nav ${scrolled ? 'scrolled' : ''}`}>
+        {/* Logo */}
         <Link href="/" className="nav-logo">
           <span className="nav-logo-text">HeavenlyRiver</span>
         </Link>
 
+        {/* Desktop center links */}
         <div className="nav-center">
           <Link href="/" className="nav-link">Home</Link>
           <Link href="/search" className="nav-link">Search</Link>
           <Link href="/party" className="nav-link">Parties</Link>
+          <Link href="/series" className="nav-link">Series</Link>
         </div>
 
         {/* Desktop right */}
-        <div className="nav-right desktop-right">
+        <div className="nav-right desktop-right" style={{ display: 'flex' }}>
           {admin && <Link href="/upload" className="nav-upload-btn">＋ Upload</Link>}
           {loading ? (
             <div className="avatar-skeleton" />
@@ -286,6 +436,12 @@ export default function Navbar() {
                   <Link href="/profile" className="dropdown-item" onClick={() => setOpen(false)}>
                     <span></span> My Profile
                   </Link>
+                  <Link href="/party" className="dropdown-item" onClick={() => setOpen(false)}>
+                    <span></span> Watch Parties
+                  </Link>
+                  <Link href="/watchlist" className="dropdown-item" onClick={() => setOpen(false)}>
+                    <span></span> My Watchlist
+                  </Link>
                   {admin && (
                     <Link href="/upload" className="dropdown-item" onClick={() => setOpen(false)}>
                       <span></span> Upload Video
@@ -307,16 +463,9 @@ export default function Navbar() {
         <button
           className={`hamburger ${mobileOpen ? 'open' : ''}`}
           onClick={() => setMobileOpen(!mobileOpen)}
-          style={{ display: 'none' }}
-          id="hamburger-btn"
         >
           <span /><span /><span />
         </button>
-        <style>{`
-          @media (max-width: 768px) {
-            #hamburger-btn { display: flex !important; }
-          }
-        `}</style>
       </nav>
 
       {/* Mobile Menu */}
@@ -330,8 +479,8 @@ export default function Navbar() {
                   : initials
                 }
               </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px', flexWrap: 'wrap' }}>
                   <div className="mobile-user-name">{nickname || user.email?.split('@')[0]}</div>
                   {admin && <span className="admin-badge">Admin</span>}
                 </div>
@@ -341,6 +490,7 @@ export default function Navbar() {
             <div className="mobile-divider" />
           </>
         )}
+
         <Link href="/" className="mobile-link" onClick={() => setMobileOpen(false)}>
           <span></span> Home
         </Link>
@@ -348,18 +498,24 @@ export default function Navbar() {
           <span></span> Search
         </Link>
         <Link href="/party" className="mobile-link" onClick={() => setMobileOpen(false)}>
-        <span className="mobile-link-icon">🎉</span> Watch Parties
-      </Link>
-        {admin && (
-          <Link href="/upload" className="mobile-link" onClick={() => setMobileOpen(false)}>
-            <span></span> Upload Video
-          </Link>
-        )}
+          <span></span> Watch Parties
+        </Link><Link href="/watchlist" className="mobile-link" onClick={() => setMobileOpen(false)}>
+          <span></span> My Watchlist
+        </Link>
+        <Link href="/series" className="mobile-link" onClick={() => setMobileOpen(false)}>
+          <span></span> Series
+        </Link>
+
         {user ? (
           <>
             <Link href="/profile" className="mobile-link" onClick={() => setMobileOpen(false)}>
               <span></span> My Profile
             </Link>
+            {admin && (
+              <Link href="/upload" className="mobile-link" onClick={() => setMobileOpen(false)}>
+                <span></span> Upload Video
+              </Link>
+            )}
             <div className="mobile-divider" />
             <button className="mobile-signout" onClick={handleSignOut}>
               <span></span> Sign Out
