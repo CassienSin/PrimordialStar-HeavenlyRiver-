@@ -70,6 +70,7 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
           <span style={{ color: 'rgba(240,230,211,0.3)', fontSize: '13px' }}>
             {new Date(video.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
           </span>
+          <WatchlistButton videoId={id} />
         </div>
         {video.description && <p className="video-desc">{video.description}</p>}
 

@@ -14,14 +14,10 @@ export default function LoginPage() {
   const [error, setError] = useState('')
 
   const handleSubmit = async () => {
-    if (!email || !password) {
-      setError('Please fill in all fields.')
-      return
-    }
+    if (!email || !password) { setError('Please fill in all fields.'); return }
     setLoading(true)
     setError('')
     setMessage('')
-
     if (isSignUp) {
       const { error } = await supabase.auth.signUp({ email, password })
       if (error) setError(error.message)
@@ -43,7 +39,7 @@ export default function LoginPage() {
       padding: '20px',
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Nunito:wght@300;400;600;700&display=swap');
+        /* Login-specific styles only */
         .login-box {
           width: 100%; max-width: 420px;
           background: #16121f;
@@ -74,21 +70,13 @@ export default function LoginPage() {
           text-transform: uppercase; cursor: pointer;
           color: rgba(240,230,211,0.3);
           border-bottom: 2px solid transparent;
-          transition: all 0.2s; background: none; border-top: none;
-          border-left: none; border-right: none;
+          transition: all 0.2s; background: none;
+          border-top: none; border-left: none; border-right: none;
           font-family: 'Nunito', sans-serif;
           margin-bottom: -1px;
         }
-        .login-tab.active {
-          color: #c9a84c;
-          border-bottom-color: #c9a84c;
-        }
-        .field-label {
-          display: block; font-size: 11px; font-weight: 700;
-          color: rgba(240,230,211,0.4); letter-spacing: 1.5px;
-          text-transform: uppercase; margin-bottom: 8px;
-        }
-        .field-input {
+        .login-tab.active { color: #c9a84c; border-bottom-color: #c9a84c; }
+        .login-input {
           width: 100%; padding: 13px 16px;
           background: #0f0c18;
           border: 1px solid rgba(201,168,76,0.12);
@@ -96,13 +84,18 @@ export default function LoginPage() {
           font-size: 15px; font-family: 'Nunito', sans-serif;
           outline: none; box-sizing: border-box;
           transition: border-color 0.2s, box-shadow 0.2s;
-          margin-bottom: 18px;
+          margin-bottom: 18px; display: block; width: 100%;
         }
-        .field-input:focus {
+        .login-input:focus {
           border-color: rgba(201,168,76,0.35);
           box-shadow: 0 0 0 3px rgba(201,168,76,0.05);
         }
-        .field-input::placeholder { color: rgba(240,230,211,0.15); }
+        .login-input::placeholder { color: rgba(240,230,211,0.15); }
+        .login-label {
+          display: block; font-size: 11px; font-weight: 700;
+          color: rgba(240,230,211,0.4); letter-spacing: 1.5px;
+          text-transform: uppercase; margin-bottom: 8px;
+        }
         .submit-btn {
           width: 100%; padding: 14px;
           background: linear-gradient(135deg, #c0392b, #7b1a1a);
@@ -132,19 +125,22 @@ export default function LoginPage() {
           color: #2ecc71; font-size: 13px;
           margin-bottom: 16px; text-align: center;
         }
-        .divider {
-          display: flex; align-items: center; gap: 12px;
-          margin: 24px 0;
+        .login-divider {
+          display: flex; align-items: center; gap: 12px; margin: 24px 0;
         }
-        .divider-line { flex: 1; height: 1px; background: rgba(201,168,76,0.1); }
-        .divider-text { font-size: 11px; color: rgba(240,230,211,0.2); letter-spacing: 1px; }
+        .login-divider-line { flex: 1; height: 1px; background: rgba(201,168,76,0.1); }
+        .login-divider-text { font-size: 11px; color: rgba(240,230,211,0.2); letter-spacing: 1px; }
+
+        @media (max-width: 480px) {
+          .login-box { padding: 32px 20px; }
+          .login-logo { font-size: 22px; letter-spacing: 3px; }
+        }
       `}</style>
 
       <div className="login-box">
         <div className="login-logo">HeavenlyRiver</div>
         <p className="login-sub">Your personal streaming world</p>
 
-        {/* Tabs */}
         <div className="login-tabs">
           <button
             className={`login-tab ${!isSignUp ? 'active' : ''}`}
@@ -159,9 +155,9 @@ export default function LoginPage() {
         {error && <div className="error-msg">{error}</div>}
         {message && <div className="success-msg">{message}</div>}
 
-        <label className="field-label">Email Address</label>
+        <label className="login-label">Email Address</label>
         <input
-          className="field-input"
+          className="login-input"
           type="email"
           placeholder="you@example.com"
           value={email}
@@ -169,9 +165,9 @@ export default function LoginPage() {
           onKeyDown={e => e.key === 'Enter' && handleSubmit()}
         />
 
-        <label className="field-label">Password</label>
+        <label className="login-label">Password</label>
         <input
-          className="field-input"
+          className="login-input"
           type="password"
           placeholder="••••••••"
           value={password}
@@ -185,10 +181,10 @@ export default function LoginPage() {
 
         {!isSignUp && (
           <>
-            <div className="divider">
-              <div className="divider-line" />
-              <span className="divider-text">or</span>
-              <div className="divider-line" />
+            <div className="login-divider">
+              <div className="login-divider-line" />
+              <span className="login-divider-text">or</span>
+              <div className="login-divider-line" />
             </div>
             <button
               className="submit-btn"

@@ -8,7 +8,7 @@ import { getStorageUrl } from '../lib/storage'
 
 const ALL_CATEGORIES = ['Anime', 'Donghua', 'Movie', 'Series', 'Other']
 const CATEGORY_ICONS: Record<string, string> = {
-  Anime: '⚔️', Donghua: '🐉', Movie: '🎬', Series: '📺', Other: '✨',
+  Anime: '', Donghua: '', Movie: '', Series: '', Other: '',
 }
 
 export default function SearchPage() {

@@ -37,11 +37,11 @@ export default function ContinueWatching() {
         .cw-row-title { font-family: 'Cinzel', serif; font-size: 16px; letter-spacing: 3px; text-transform: uppercase; color: #c9a84c; text-shadow: 0 0 20px rgba(201,168,76,0.25); margin: 0; }
         .cw-row-line { flex: 1; height: 1px; background: linear-gradient(to right, rgba(201,168,76,0.2), transparent); }
         .cw-row-count { font-size: 11px; color: rgba(240,230,211,0.2); font-weight: 600; letter-spacing: 1px; white-space: nowrap; }
-        .cw-cards { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 12px; scrollbar-width: thin; scrollbar-color: rgba(201,168,76,0.3) transparent; }
+        .cw-cards { display: flex; gap: 14px; overflow-x: auto; padding-top: 20px; padding-bottom: 20px; padding-left: 12px; padding-right: 12px; margin-left: -12px; margin-right: -12px; scrollbar-width: thin; scrollbar-color: rgba(201,168,76,0.3) transparent; }
         .cw-cards::-webkit-scrollbar { height: 3px; }
         .cw-cards::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.3); border-radius: 2px; }
-        .cw-card { flex-shrink: 0; width: 185px; border-radius: 6px; overflow: hidden; background: #16121f; text-decoration: none; display: block; border: 1px solid rgba(201,168,76,0.07); transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s, border-color 0.3s; position: relative; }
-        .cw-card:hover { transform: translateY(-6px) scale(1.03); box-shadow: 0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,168,76,0.2); border-color: rgba(201,168,76,0.2); z-index: 2; }
+        .cw-card { flex-shrink: 0; width: 185px; border-radius: 6px; overflow: hidden; background: #16121f; text-decoration: none; display: block; border: 1px solid rgba(201,168,76,0.07); transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s, border-color 0.3s; position: relative; z-index: 1; }
+        .cw-card:hover { transform: translateY(-8px) scale(1.10); box-shadow: 0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,168,76,0.2); border-color: rgba(201,168,76,0.2); z-index: 2; }
         .cw-thumb { width: 185px; height: 110px; background: #1e1828; position: relative; overflow: hidden; }
         .cw-thumb img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s; }
         .cw-card:hover .cw-thumb img { transform: scale(1.08); }

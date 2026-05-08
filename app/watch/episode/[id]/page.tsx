@@ -7,9 +7,10 @@ import { getStorageUrl } from '../../../lib/storage'
 export default async function EpisodeWatchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
 
+  // Step 1 - Get episode
   const { data: episode } = await supabase
     .from('episodes')
-    .select('*, seasons(id, season_number, title, series_id, series(id, title, category, thumbnail_url))')
+    .select('*')
     .eq('id', id)
     .single()
 
@@ -25,7 +26,21 @@ export default async function EpisodeWatchPage({ params }: { params: Promise<{ i
     )
   }
 
-  // Get all episodes in this season for next/prev navigation
+  // Step 2 - Get season
+  const { data: season } = await supabase
+    .from('seasons')
+    .select('*')
+    .eq('id', episode.season_id)
+    .single()
+
+  // Step 3 - Get series
+  const { data: series } = await supabase
+    .from('series')
+    .select('*')
+    .eq('id', episode.series_id)
+    .single()
+
+  // Step 4 - Get all episodes in season for nav
   const { data: allEpisodes } = await supabase
     .from('episodes')
     .select('id, episode_number, title, thumbnail_url')
@@ -72,7 +87,7 @@ export default async function EpisodeWatchPage({ params }: { params: Promise<{ i
       <Navbar />
 
       <div className="ep-watch-wrap">
-        <Link href={`/series/${episode.seasons?.series_id}`} className="back-link">
+        <Link href={`/series/${episode.series_id}`} className="back-link">
           ← Back to Series
         </Link>
 
@@ -81,15 +96,17 @@ export default async function EpisodeWatchPage({ params }: { params: Promise<{ i
 
         {/* Episode Info */}
         <div className="ep-meta">
-          <Link href={`/series/${episode.seasons?.series_id}`} className="ep-series-link">
-            📺 {episode.seasons?.series?.title}
-          </Link>
+          {series && (
+            <Link href={`/series/${series.id}`} className="ep-series-link">
+              📺 {series.title}
+            </Link>
+          )}
           <div className="ep-season-info">
-            {episode.seasons?.title || `Season ${episode.seasons?.season_number}`}
+            {season?.title || `Season ${season?.season_number}`}
           </div>
           <h1 className="ep-title">{episode.title}</h1>
           <div className="ep-badges">
-            <span className="ep-badge">{episode.seasons?.series?.category}</span>
+            {series && <span className="ep-badge">{series.category}</span>}
             <span className="ep-num-badge">Episode {episode.episode_number}</span>
           </div>
           {episode.description && <p className="ep-desc">{episode.description}</p>}

@@ -79,7 +79,7 @@ export default function UploadPage() {
 
   const handleUpload = async () => {
     if (!title || !videoFile) {
-      setMessage('❌ Please add a title and video file.')
+      setMessage('Please add a title and video file.')
       return
     }
 
@@ -235,7 +235,6 @@ export default function UploadPage() {
             <option value="Anime">Anime</option>
             <option value="Donghua">Donghua</option>
             <option value="Movie">Movie</option>
-            <option value="Series">Series</option>
             <option value="Other">Other</option>
           </select>
         </div>

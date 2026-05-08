@@ -217,6 +217,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
         .series-stats { display: flex; gap: 20px; flex-wrap: wrap; }
         .series-stat { font-size: 13px; color: rgba(240,230,211,0.4); }
         .series-stat span { color: #c9a84c; font-weight: 700; }
+        .poster-edit-overlay:hover { opacity: 1 !important; }
 
         .series-body { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
 
@@ -292,6 +293,43 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
               : <div className="series-poster-empty">📺</div>
             }
           </div>
+          <div className="series-poster" style={{ position: 'relative' }}>
+            {series.thumbnail_url
+              ? <img src={getStorageUrl(series.thumbnail_url)} alt={series.title} />
+              : <div className="series-poster-empty">📺</div>
+            }
+            {isAdmin && (
+              <label style={{
+                position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', background: 'rgba(0,0,0,0.6)',
+                opacity: 0, transition: 'opacity 0.2s', cursor: 'pointer',
+                borderRadius: '8px', fontSize: '12px', color: 'white',
+                fontWeight: 700, letterSpacing: '0.5px', flexDirection: 'column', gap: '4px'
+              }}
+              className="poster-edit-overlay"
+              >
+                <span>Change</span>
+                <input
+                  type="file" accept="image/*" style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    const { data: { session } } = await supabase.auth.getSession()
+                    const token = session?.access_token || ''
+                    const res = await fetch('/api/upload', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                      body: JSON.stringify({ fileName: f.name, fileType: f.type, folder: 'series-posters' }),
+                    })
+                    const { signedUrl, filePath } = await res.json()
+                    await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': f.type }, body: f })
+                    await supabase.from('series').update({ thumbnail_url: filePath }).eq('id', seriesId)
+                    setSeries((prev: any) => ({ ...prev, thumbnail_url: filePath }))
+                  }}
+                />
+              </label>
+            )}
+          </div>
           <div className="series-info">
             <div className="series-cat-badge">{series.category}</div>
             <h1 className="series-name">{series.title}</h1>
@@ -337,7 +375,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
                 setEpForm(f => ({ ...f, episode_number: nextEp }))
                 setShowUploadEp(true)
               }}>
-                ⬆ Upload Episode
+                Upload Episode
               </button>
             )}
           </div>
