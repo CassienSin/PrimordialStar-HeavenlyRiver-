@@ -61,12 +61,10 @@ export default function ProfilePage() {
       const token = session?.access_token || ''
       let finalAvatarUrl = avatarUrl
 
-      // Upload avatar if new one selected
       if (avatarFile) {
         setUploadingAvatar(true)
         const formData = new FormData()
         formData.append('file', avatarFile)
-
         const res = await fetch('/api/upload-avatar', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` },
@@ -84,7 +82,6 @@ export default function ProfilePage() {
         setUploadingAvatar(false)
       }
 
-      // Save profile
       const { error } = await supabase
         .from('profiles')
         .update({ username, nickname, avatar_url: finalAvatarUrl })
@@ -93,6 +90,10 @@ export default function ProfilePage() {
       if (error) {
         setMessage('❌ Failed to save: ' + error.message)
       } else {
+        // Update navbar cache
+        localStorage.setItem(`hr_nickname_${user.id}`, nickname || username || '')
+        localStorage.setItem(`hr_avatar_${user.id}`, finalAvatarUrl)
+        localStorage.removeItem(`hr_admin_${user.id}`) // force navbar refresh
         setAvatarUrl(finalAvatarUrl)
         setAvatarPreview(null)
         setAvatarFile(null)
@@ -113,15 +114,13 @@ export default function ProfilePage() {
   return (
     <div style={{ minHeight: '100vh', background: '#0a0812', color: '#f0e6d3', fontFamily: "'Nunito', sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Nunito:wght@300;400;600;700&display=swap');
+        /* Profile-specific styles only */
         .profile-wrap { max-width: 720px; margin: 0 auto; padding: 100px 24px 80px; }
-        .profile-title { font-family: 'Cinzel', serif; font-size: 32px; letter-spacing: 2px; margin-bottom: 8px; color: #f0e6d3; }
         .profile-subtitle { color: rgba(240,230,211,0.3); font-size: 13px; letter-spacing: 1px; margin-bottom: 40px; }
 
         .profile-card { background: #16121f; border-radius: 10px; padding: 32px; border: 1px solid rgba(201,168,76,0.12); margin-bottom: 24px; }
         .card-heading { font-family: 'Cinzel', serif; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: rgba(201,168,76,0.5); margin: 0 0 28px; }
 
-        /* Avatar section */
         .avatar-section { display: flex; align-items: center; gap: 24px; margin-bottom: 28px; padding-bottom: 28px; border-bottom: 1px solid rgba(201,168,76,0.08); }
         .avatar-big { width: 88px; height: 88px; border-radius: 10px; background: linear-gradient(135deg, #c0392b, #7b1a1a); display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: 700; font-family: 'Cinzel', serif; color: #f0c96a; border: 2px solid rgba(201,168,76,0.2); flex-shrink: 0; overflow: hidden; position: relative; cursor: pointer; transition: all 0.2s; }
         .avatar-big:hover .avatar-overlay { opacity: 1; }
@@ -132,13 +131,7 @@ export default function ProfilePage() {
         .avatar-upload-btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.2); border-radius: 4px; color: #c9a84c; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.2s; }
         .avatar-upload-btn:hover { background: rgba(201,168,76,0.15); border-color: #c9a84c; }
 
-        /* Fields */
-        .field { margin-bottom: 20px; }
         .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-        .field label { display: block; font-size: 11px; font-weight: 700; color: rgba(240,230,211,0.4); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
-        .field input { width: 100%; padding: 12px 16px; background: #0f0c18; border: 1px solid rgba(201,168,76,0.12); border-radius: 6px; color: #f0e6d3; font-size: 15px; font-family: 'Nunito', sans-serif; outline: none; box-sizing: border-box; transition: border-color 0.2s; }
-        .field input:focus { border-color: rgba(201,168,76,0.4); box-shadow: 0 0 0 3px rgba(201,168,76,0.04); }
-        .field input::placeholder { color: rgba(240,230,211,0.15); }
         .field-hint { font-size: 11px; color: rgba(240,230,211,0.2); margin-top: 6px; }
 
         .email-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #0f0c18; border: 1px solid rgba(201,168,76,0.08); border-radius: 6px; margin-bottom: 20px; }
@@ -148,10 +141,9 @@ export default function ProfilePage() {
         .save-btn { padding: 13px 32px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; border: 1px solid rgba(201,168,76,0.25); border-radius: 5px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Cinzel', serif; letter-spacing: 1.5px; transition: all 0.2s; }
         .save-btn:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); box-shadow: 0 0 20px rgba(192,57,43,0.3); }
         .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .save-row { display: flex; align-items: center; gap: 16px; margin-top: 4px; }
+        .save-row { display: flex; align-items: center; gap: 16px; margin-top: 4px; flex-wrap: wrap; }
         .save-msg { font-size: 13px; color: rgba(240,230,211,0.6); }
 
-        /* Watch history */
         .history-item { display: flex; gap: 14px; align-items: center; padding: 12px 8px; border-bottom: 1px solid rgba(201,168,76,0.07); text-decoration: none; border-radius: 6px; transition: background 0.2s; }
         .history-item:last-child { border-bottom: none; }
         .history-item:hover { background: rgba(201,168,76,0.04); }
@@ -179,30 +171,24 @@ export default function ProfilePage() {
       <Navbar />
 
       <div className="profile-wrap">
-        <h1 className="profile-title">My Profile</h1>
+        <h1 className="page-title" style={{ marginBottom: '8px' }}>My Profile</h1>
         <p className="profile-subtitle">Manage your account and preferences</p>
 
-        {/* Account Card */}
         <div className="profile-card">
           <p className="card-heading">Account</p>
 
-          {/* Avatar */}
           <div className="avatar-section">
             <div className="avatar-big" onClick={() => fileInputRef.current?.click()}>
-              {currentAvatar ? (
-                <img src={currentAvatar} alt="Avatar" />
-              ) : (
-                initials
-              )}
+              {currentAvatar
+                ? <img src={currentAvatar} alt="Avatar" />
+                : initials
+              }
               <div className="avatar-overlay">📷</div>
             </div>
             <div className="avatar-info">
               <h3>{displayName}</h3>
               <p>{user?.email}</p>
-              <div
-                className="avatar-upload-btn"
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <div className="avatar-upload-btn" onClick={() => fileInputRef.current?.click()}>
                 📷 Change Photo
               </div>
               <input
@@ -215,7 +201,7 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Email (read only) */}
+          {/* Email read only */}
           <div className="field">
             <label>Email Address</label>
             <div className="email-row">
@@ -254,7 +240,6 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Watch History */}
         <div className="profile-card">
           <p className="card-heading">Watch History</p>
           {watchHistory.length === 0 ? (

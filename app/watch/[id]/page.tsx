@@ -62,7 +62,6 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
       <Navbar />
 
       <div className="watch-wrap">
-        <Link href="/" className="back-link">← Back to Home</Link>
         <WatchClient video={videoWithUrls} />
         <h1 className="video-title">{video.title}</h1>
         <div className="video-meta">

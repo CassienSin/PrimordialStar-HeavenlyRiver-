@@ -87,12 +87,14 @@ export default async function EpisodeWatchPage({ params }: { params: Promise<{ i
       <Navbar />
 
       <div className="ep-watch-wrap">
-        <Link href={`/series/${episode.series_id}`} className="back-link">
-          ← Back to Series
-        </Link>
 
         {/* Video Player */}
-        <EpisodeWatchClient episode={epWithUrls} />
+        <EpisodeWatchClient
+          episode={epWithUrls}
+          seriesId={episode.series_id}
+          seriesTitle={series?.title}
+          seasonLabel={season?.title || `Season ${season?.season_number}`}
+        />
 
         {/* Episode Info */}
         <div className="ep-meta">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -26,6 +26,10 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
   const [progressPhase, setProgressPhase] = useState('')
   const [newSeasonNum, setNewSeasonNum] = useState(1)
   const [newSeasonTitle, setNewSeasonTitle] = useState('')
+  const [editingInfo, setEditingInfo] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [savingInfo, setSavingInfo] = useState(false)
 
   useEffect(() => {
     params.then(p => setSeriesId(p.id))
@@ -114,7 +118,6 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token || ''
 
-      // Upload video
       setProgressPhase('Preparing upload...')
       const videoRes = await fetch('/api/upload', {
         method: 'POST',
@@ -137,7 +140,6 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
         xhr.send(videoFile)
       })
 
-      // Upload thumbnail
       let thumbnailPath = ''
       const thumbToUpload = thumbFile || (autoThumb ? dataUrlToFile(autoThumb, 'thumb.jpg') : null)
       if (thumbToUpload) {
@@ -190,6 +192,17 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
     ))
   }
 
+  const handleSaveInfo = async () => {
+    if (!editTitle.trim()) return
+    setSavingInfo(true)
+    await supabase.from('series')
+      .update({ title: editTitle, description: editDesc })
+      .eq('id', seriesId)
+    setSeries((prev: any) => ({ ...prev, title: editTitle, description: editDesc }))
+    setSavingInfo(false)
+    setEditingInfo(false)
+  }
+
   if (!series) return (
     <div style={{ minHeight: '100vh', background: '#0a0812', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f0e6d3' }}>
       <p>Loading...</p>
@@ -201,23 +214,27 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
   return (
     <div style={{ minHeight: '100vh', background: '#0a0812', color: '#f0e6d3', fontFamily: "'Nunito', sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Nunito:wght@300;400;600;700&display=swap');
-
-        .series-hero { position: relative; min-height: 380px; display: flex; align-items: flex-end; padding: 80px 48px 40px; overflow: hidden; }
+        .series-hero { position: relative; min-height: 460px; display: flex; align-items: flex-end; padding: 80px 48px 48px; overflow: hidden; }
         .series-hero-bg { position: absolute; inset: 0; background-size: cover; background-position: center; filter: blur(2px) brightness(0.3); transform: scale(1.05); }
         .series-hero-overlay { position: absolute; inset: 0; background: linear-gradient(to top, #0a0812 0%, rgba(10,8,18,0.6) 60%, transparent 100%); }
         .series-hero-content { position: relative; z-index: 10; display: flex; gap: 32px; align-items: flex-end; max-width: 900px; }
-        .series-poster { width: 140px; height: 200px; border-radius: 8px; overflow: hidden; flex-shrink: 0; border: 2px solid rgba(201,168,76,0.2); box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+        .series-poster { width: 200px; height: 300px; border-radius: 8px; overflow: hidden; flex-shrink: 0; border: 2px solid rgba(201,168,76,0.2); box-shadow: 0 8px 32px rgba(0,0,0,0.6); position: relative; }
         .series-poster img { width: 100%; height: 100%; object-fit: cover; }
         .series-poster-empty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 48px; background: #16121f; }
+        .poster-edit-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); opacity: 0; transition: opacity 0.2s; cursor: pointer; border-radius: 8px; font-size: 12px; color: white; font-weight: 700; letter-spacing: 0.5px; flex-direction: column; gap: 4px; }
+        .series-poster:hover .poster-edit-overlay { opacity: 1; }
+
         .series-info { flex: 1; }
-        .series-cat-badge { display: inline-block; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; padding: 3px 12px; border-radius: 2px; font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; font-family: 'Cinzel', serif; border: 1px solid rgba(201,168,76,0.3); margin-bottom: 12px; }
         .series-name { font-family: 'Cinzel', serif; font-size: clamp(24px, 4vw, 48px); line-height: 1.1; margin: 0 0 12px; color: #f0e6d3; letter-spacing: 1px; }
         .series-desc { color: rgba(240,230,211,0.6); font-size: 14px; line-height: 1.7; margin-bottom: 16px; max-width: 600px; }
         .series-stats { display: flex; gap: 20px; flex-wrap: wrap; }
         .series-stat { font-size: 13px; color: rgba(240,230,211,0.4); }
         .series-stat span { color: #c9a84c; font-weight: 700; }
-        .poster-edit-overlay:hover { opacity: 1 !important; }
+
+        .series-edit-input { width: 100%; padding: 10px 14px; background: rgba(10,8,18,0.6); border: 1px solid rgba(201,168,76,0.3); border-radius: 6px; color: #f0e6d3; font-family: 'Cinzel', serif; font-size: clamp(18px, 3vw, 32px); font-weight: 700; letter-spacing: 1px; outline: none; box-sizing: border-box; margin-bottom: 12px; transition: border-color 0.2s; }
+        .series-edit-input:focus { border-color: #c9a84c; }
+        .series-edit-textarea { width: 100%; padding: 10px 14px; background: rgba(10,8,18,0.6); border: 1px solid rgba(201,168,76,0.2); border-radius: 6px; color: rgba(240,230,211,0.8); font-family: 'Nunito', sans-serif; font-size: 14px; line-height: 1.7; outline: none; box-sizing: border-box; resize: vertical; max-width: 600px; transition: border-color 0.2s; }
+        .series-edit-textarea:focus { border-color: #c9a84c; }
 
         .series-body { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
 
@@ -228,14 +245,9 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
         .season-tab:not(.active):hover { color: #f0e6d3; border-color: rgba(201,168,76,0.2); }
 
         .season-actions { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; }
-        .btn-sm { padding: 8px 16px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.2s; border: none; }
-        .btn-gold { background: rgba(201,168,76,0.1); color: #c9a84c; border: 1px solid rgba(201,168,76,0.25) !important; }
-        .btn-gold:hover { background: rgba(201,168,76,0.2); }
-        .btn-red { background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; border: 1px solid rgba(201,168,76,0.3) !important; }
-        .btn-red:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 
         .ep-list { display: flex; flex-direction: column; gap: 12px; }
-        .ep-item { display: flex; gap: 16px; align-items: center; padding: 14px 16px; background: #16121f; border-radius: 8px; border: 1px solid rgba(201,168,76,0.07); transition: all 0.2s; text-decoration: none; }
+        .ep-item { display: flex; gap: 16px; align-items: center; padding: 14px 16px; background: #16121f; border-radius: 8px; border: 1px solid rgba(201,168,76,0.07); transition: all 0.2s; text-decoration: none; flex: 1; }
         .ep-item:hover { border-color: rgba(201,168,76,0.2); background: #1e1828; transform: translateX(4px); }
         .ep-num { font-family: 'Cinzel', serif; font-size: 18px; color: rgba(240,230,211,0.2); font-weight: 700; min-width: 36px; text-align: center; flex-shrink: 0; }
         .ep-thumb { width: 120px; height: 68px; border-radius: 5px; overflow: hidden; flex-shrink: 0; background: #1e1828; }
@@ -244,37 +256,19 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
         .ep-info { flex: 1; min-width: 0; }
         .ep-title { font-size: 15px; font-weight: 700; color: #f0e6d3; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .ep-desc { font-size: 13px; color: rgba(240,230,211,0.4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .ep-actions { display: flex; gap: 8px; flex-shrink: 0; }
-        .ep-del-btn { width: 30px; height: 30px; border-radius: 4px; background: rgba(192,57,43,0.15); border: 1px solid rgba(192,57,43,0.25); color: #e74c3c; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .ep-del-btn { width: 30px; height: 30px; border-radius: 4px; background: rgba(192,57,43,0.15); border: 1px solid rgba(192,57,43,0.25); color: #e74c3c; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
         .ep-del-btn:hover { background: rgba(192,57,43,0.3); }
-
         .empty-eps { text-align: center; padding: 48px; color: rgba(240,230,211,0.25); }
 
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .modal { background: #16121f; border: 1px solid rgba(201,168,76,0.15); border-radius: 10px; padding: 32px; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; }
-        .modal-title { font-family: 'Cinzel', serif; font-size: 20px; letter-spacing: 1px; margin: 0 0 24px; color: #f0e6d3; }
-        .field { margin-bottom: 16px; }
-        .field label { display: block; font-size: 11px; font-weight: 700; color: rgba(240,230,211,0.4); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
-        .field input, .field textarea, .field select { width: 100%; padding: 11px 14px; background: #0f0c18; border: 1px solid rgba(201,168,76,0.12); border-radius: 6px; color: #f0e6d3; font-size: 14px; font-family: 'Nunito', sans-serif; outline: none; box-sizing: border-box; transition: border-color 0.2s; }
-        .field input:focus, .field textarea:focus { border-color: rgba(201,168,76,0.4); }
-        .field input::placeholder, .field textarea::placeholder { color: rgba(240,230,211,0.2); }
-        .field input[type=file] { color: rgba(240,230,211,0.5); cursor: pointer; }
-        .field textarea { min-height: 70px; resize: vertical; }
-        .thumb-preview { width: 100%; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; background: #0f0c18; border: 1px solid rgba(201,168,76,0.1); margin-bottom: 6px; position: relative; }
-        .thumb-preview img { width: 100%; height: 100%; object-fit: cover; }
         .auto-badge { position: absolute; top: 6px; left: 6px; background: linear-gradient(135deg, #c0392b, #7b1a1a); color: #f0c96a; font-size: 9px; padding: 2px 8px; border-radius: 2px; font-family: 'Cinzel', serif; letter-spacing: 1px; text-transform: uppercase; }
-        .modal-btns { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; }
-        .btn-cancel { padding: 10px 20px; background: rgba(255,255,255,0.05); color: rgba(240,230,211,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; font-size: 13px; cursor: pointer; font-family: 'Nunito', sans-serif; }
-        .progress-wrap { margin-top: 16px; }
-        .progress-bar { width: 100%; height: 5px; background: #2a2a2a; border-radius: 3px; overflow: hidden; }
-        .progress-fill { height: 100%; background: linear-gradient(to right, #c0392b, #c9a84c); border-radius: 3px; transition: width 0.3s; }
 
         @media (max-width: 768px) {
-          .series-hero { padding: 80px 20px 32px; min-height: 300px; }
+          .series-hero { padding: 80px 20px 32px; min-height: 340px; }
           .series-hero-content { flex-direction: column; gap: 16px; }
-          .series-poster { width: 100px; height: 145px; }
+          .series-poster { width: 140px; height: 210px; }
           .ep-thumb { width: 90px; height: 51px; }
           .ep-title { font-size: 13px; }
+          .series-edit-input { font-size: 20px; }
         }
       `}</style>
 
@@ -287,28 +281,16 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
         )}
         <div className="series-hero-overlay" />
         <div className="series-hero-content">
+
+          {/* Poster with admin edit overlay */}
           <div className="series-poster">
             {series.thumbnail_url
               ? <img src={getStorageUrl(series.thumbnail_url)} alt={series.title} />
               : <div className="series-poster-empty">📺</div>
             }
-          </div>
-          <div className="series-poster" style={{ position: 'relative' }}>
-            {series.thumbnail_url
-              ? <img src={getStorageUrl(series.thumbnail_url)} alt={series.title} />
-              : <div className="series-poster-empty">📺</div>
-            }
             {isAdmin && (
-              <label style={{
-                position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', background: 'rgba(0,0,0,0.6)',
-                opacity: 0, transition: 'opacity 0.2s', cursor: 'pointer',
-                borderRadius: '8px', fontSize: '12px', color: 'white',
-                fontWeight: 700, letterSpacing: '0.5px', flexDirection: 'column', gap: '4px'
-              }}
-              className="poster-edit-overlay"
-              >
-                <span>Change</span>
+              <label className="poster-edit-overlay">
+                📷<span>Change</span>
                 <input
                   type="file" accept="image/*" style={{ display: 'none' }}
                   onChange={async (e) => {
@@ -330,23 +312,69 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
               </label>
             )}
           </div>
+
+          {/* Series info */}
           <div className="series-info">
-            <div className="series-cat-badge">{series.category}</div>
-            <h1 className="series-name">{series.title}</h1>
-            {series.description && <p className="series-desc">{series.description}</p>}
-            <div className="series-stats">
-              <div className="series-stat"><span>{seasons.length}</span> Season{seasons.length !== 1 ? 's' : ''}</div>
-              <div className="series-stat">
-                <span>{seasons.reduce((acc, s) => acc + s.episodes.length, 0)}</span> Episodes
-              </div>
-            </div>
+            <div className="badge-red" style={{ marginBottom: '12px' }}>{series.category}</div>
+
+            {editingInfo ? (
+              <>
+                <input
+                  className="series-edit-input"
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  placeholder="Series title"
+                  autoFocus
+                />
+                <textarea
+                  className="series-edit-textarea"
+                  value={editDesc}
+                  onChange={e => setEditDesc(e.target.value)}
+                  placeholder="Series description"
+                  rows={4}
+                />
+                <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                  <button className="btn-sm red" onClick={handleSaveInfo} disabled={savingInfo}>
+                    {savingInfo ? 'Saving...' : 'Save'}
+                  </button>
+                  <button className="btn-sm gold" onClick={() => setEditingInfo(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h1 className="series-name">{series.title}</h1>
+                {series.description && <p className="series-desc">{series.description}</p>}
+                <div className="series-stats">
+                  <div className="series-stat">
+                    <span>{seasons.length}</span> Season{seasons.length !== 1 ? 's' : ''}
+                  </div>
+                  <div className="series-stat">
+                    <span>{seasons.reduce((acc, s) => acc + s.episodes.length, 0)}</span> Episodes
+                  </div>
+                </div>
+                {isAdmin && (
+                  <button
+                    className="btn-sm gold"
+                    style={{ marginTop: '16px' }}
+                    onClick={() => {
+                      setEditTitle(series.title)
+                      setEditDesc(series.description || '')
+                      setEditingInfo(true)
+                    }}
+                  >
+                    Edit Info
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {/* Body */}
       <div className="series-body">
-
         {/* Season tabs */}
         {seasons.length > 0 && (
           <div className="season-tabs">
@@ -365,11 +393,11 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
         {/* Admin actions */}
         {isAdmin && (
           <div className="season-actions">
-            <button className="btn-sm btn-gold" onClick={() => setShowAddSeason(true)}>
+            <button className="btn-sm gold" onClick={() => setShowAddSeason(true)}>
               ＋ Add Season
             </button>
             {currentSeason && (
-              <button className="btn-sm btn-red" onClick={() => {
+              <button className="btn-sm red" onClick={() => {
                 setSelectedSeasonId(currentSeason.id)
                 const nextEp = (currentSeason.episodes?.length || 0) + 1
                 setEpForm(f => ({ ...f, episode_number: nextEp }))
@@ -381,7 +409,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
           </div>
         )}
 
-        {/* Episodes list */}
+        {/* Episodes */}
         {seasons.length === 0 ? (
           <div className="empty-eps">
             <div style={{ fontSize: '48px', opacity: 0.3, marginBottom: '16px' }}>📺</div>
@@ -398,7 +426,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
           <div className="ep-list">
             {currentSeason?.episodes?.map((ep: any) => (
               <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Link href={`/watch/episode/${ep.id}`} className="ep-item" style={{ flex: 1 }}>
+                <Link href={`/watch/episode/${ep.id}`} className="ep-item">
                   <div className="ep-num">{ep.episode_number}</div>
                   <div className="ep-thumb">
                     {ep.thumbnail_url
@@ -439,7 +467,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
             </div>
             <div className="modal-btns">
               <button className="btn-cancel" onClick={() => setShowAddSeason(false)}>Cancel</button>
-              <button className="btn-sm btn-red" onClick={handleAddSeason}>Add Season</button>
+              <button className="btn-sm red" onClick={handleAddSeason}>Add Season</button>
             </div>
           </div>
         </div>
@@ -449,7 +477,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
       {showUploadEp && (
         <div className="modal-overlay" onClick={() => !uploading && setShowUploadEp(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2 className="modal-title">Upload Episode</h2>
+            <h2 className="modal-title">⬆ Upload Episode</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div className="field">
                 <label>Episode Number</label>
@@ -488,9 +516,9 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
             </div>
             {uploading && (
               <div className="progress-wrap">
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px', color: 'rgba(240,230,211,0.5)' }}>
-                  <span>{progressPhase}</span>
-                  <span style={{ color: '#c9a84c' }}>{progress}%</span>
+                <div className="progress-labels">
+                  <span className="progress-phase">{progressPhase}</span>
+                  <span className="progress-pct">{progress}%</span>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${progress}%` }} />
@@ -499,7 +527,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
             )}
             <div className="modal-btns">
               <button className="btn-cancel" onClick={() => !uploading && setShowUploadEp(false)} disabled={uploading}>Cancel</button>
-              <button className="btn-sm btn-red" onClick={handleUploadEpisode} disabled={uploading || !videoFile || !epForm.title}>
+              <button className="btn-sm red" onClick={handleUploadEpisode} disabled={uploading || !videoFile || !epForm.title}>
                 {uploading ? progressPhase || 'Uploading...' : 'Upload Episode'}
               </button>
             </div>
