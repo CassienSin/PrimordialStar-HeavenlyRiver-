@@ -10,20 +10,24 @@ export default function EpisodeWatchClient({
   seriesId,
   seriesTitle,
   seasonLabel,
+  isAdmin: isAdminProp,
 }: {
   episode: any
   seriesId?: string
   seriesTitle?: string
   seasonLabel?: string
+  isAdmin?: boolean
 }) {
   const router = useRouter()
   const progressRef = useRef(0)
-  const [isOwner, setIsOwner] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(isAdminProp || false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => {
     const checkAdmin = async () => {
+      if (isAdminProp) return
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
       const { data } = await supabase
@@ -31,10 +35,10 @@ export default function EpisodeWatchClient({
         .select('is_admin')
         .eq('id', session.user.id)
         .single()
-      setIsOwner(data?.is_admin === true)
+      setIsAdmin(data?.is_admin === true)
     }
     checkAdmin()
-  }, [])
+  }, [isAdminProp])
 
   useEffect(() => {
     const saveProgress = async () => {
@@ -53,26 +57,37 @@ export default function EpisodeWatchClient({
 
   const handleDelete = async () => {
     setDeleting(true)
+    setDeleteError('')
+
     try {
-      const res = await fetch('/api/delete-video', {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setDeleteError('Not authenticated'); setDeleting(false); return }
+
+      const res = await fetch('/api/delete-episode', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId: episode.id,
-          videoUrl: episode.video_url,
-          thumbnailUrl: episode.thumbnail_url,
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ episodeId: episode.id }),
       })
+
       const data = await res.json()
-      if (data.success) {
-        seriesId ? router.push(`/series/${seriesId}`) : router.back()
-      } else {
-        alert('Failed to delete: ' + data.error)
+
+      if (!res.ok) {
+        setDeleteError(data.error || 'Delete failed')
         setDeleting(false)
+        return
       }
-    } catch (err) {
-      console.error('Delete fetch error:', err)
-      alert('Network error: ' + err)
+
+      if (data.warnings?.length) {
+        console.warn('Storage cleanup warnings:', data.warnings)
+      }
+
+      setShowConfirm(false)
+      seriesId ? router.push(`/series/${seriesId}`) : router.back()
+    } catch (err: any) {
+      setDeleteError(err.message)
       setDeleting(false)
     }
   }
@@ -105,6 +120,7 @@ export default function EpisodeWatchClient({
                 {deleting ? 'Deleting...' : '🗑 Delete'}
               </button>
             </div>
+            {deleteError && <p style={{ color: '#e74c3c', marginTop: 12, fontSize: 13 }}>❌ {deleteError}</p>}
           </div>
         </div>
       )}
@@ -118,7 +134,7 @@ export default function EpisodeWatchClient({
         synopsis={episode.description}
         onBack={() => seriesId ? router.push(`/series/${seriesId}`) : router.back()}
         onTimeUpdate={(t) => { progressRef.current = t }}
-        onDelete={isOwner ? () => setShowConfirm(true) : undefined}
+        onDelete={isAdmin ? () => setShowConfirm(true) : undefined}
       />
     </>
   )

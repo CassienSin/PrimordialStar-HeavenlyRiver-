@@ -53,7 +53,7 @@ export default function CategoryRow({ category, videos }: { category: string; vi
         }
         renderCard={(video) => (
           <HoverCard video={video}>
-            <Link href={`/watch/${video.id}`} className="cr-card">
+            <Link href={`/video/${video.id}`} className="cr-card">
               <div className="cr-thumb">
                 {video.thumbnail_url ? (
                   <>

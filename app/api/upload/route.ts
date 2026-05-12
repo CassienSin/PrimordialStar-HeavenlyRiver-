@@ -14,14 +14,14 @@ const supabaseAdmin = createClient(
 export async function POST(req: NextRequest) {
   try {
     // Get auth token from request headers
-    const authHeader = req.headers.get('authorization')
+    const authHeader = req.headers.get('Authorization')
     const token = authHeader?.replace('Bearer ', '')
 
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // Verify user and check admin
-    const { data: { user } } = await supabaseAdmin.auth.getUser(token)
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { data: profile } = await supabaseAdmin
       .from('profiles')

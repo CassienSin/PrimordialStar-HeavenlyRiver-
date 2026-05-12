@@ -11,11 +11,28 @@ export const revalidate = 0
 
 export default async function Home() {
   const { data: videos } = await supabase.from('videos').select('*')
+  const { data: series } = await supabase.from('series').select('*')
   const categories = ['Anime', 'Donghua', 'Movie', 'Series', 'Other']
 
-  // Random featured from first 5 videos
-  const featured = videos && videos.length > 0
-    ? videos[Math.floor(Math.random() * Math.min(videos.length, 5))]
+  // Build a unified featured pool from all videos + series
+  const videoPool = (videos ?? []).map(v => ({
+    type: 'video' as const,
+    ...v,
+    thumbnail_url: getStorageUrl(v.thumbnail_url),
+    video_url: getStorageUrl(v.video_url),
+  }))
+
+  const seriesPool = (series ?? []).map(s => ({
+    type: 'series' as const,
+    ...s,
+    thumbnail_url: getStorageUrl(s.thumbnail_url),
+    // series might have a trailer_url or use the first episode's video_url
+    video_url: s.trailer_url ? getStorageUrl(s.trailer_url) : null,
+  }))
+
+  const featuredPool = [...videoPool, ...seriesPool]
+  const featured = featuredPool.length > 0
+    ? featuredPool[Math.floor(Math.random() * featuredPool.length)]
     : null
 
   return (
@@ -67,11 +84,7 @@ export default async function Home() {
 
       {/* Hero */}
       {featured ? (
-        <HeroPreview video={{
-          ...featured,
-          thumbnail_url: getStorageUrl(featured.thumbnail_url),
-          video_url: getStorageUrl(featured.video_url),
-        }} />
+        <HeroPreview video={featured} />
       ) : (
         <div style={{ height: '85vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="empty-state">

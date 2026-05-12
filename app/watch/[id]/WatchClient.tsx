@@ -72,6 +72,7 @@ export default function WatchClient({ video }: { video: any }) {
   return (
     <>
       <style>{`
+        html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
         .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: flex; align-items: center; justify-content: center; }
         .confirm-box { background: #16121f; border: 1px solid rgba(201,168,76,0.2); border-radius: 8px; padding: 40px; max-width: 400px; width: 90%; text-align: center; }
         .confirm-title { font-family: 'Cinzel', serif; font-size: 22px; color: #f0e6d3; margin-bottom: 12px; }

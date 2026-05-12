@@ -11,6 +11,7 @@ interface Video {
   title: string
   category: string
   thumbnail_url?: string
+  video_url?: string
   description?: string
   created_at?: string
 }
@@ -48,6 +49,13 @@ export default function HoverCard({ video, children }: HoverCardProps) {
   const onExpandEnter = useCallback(() => clearClose(), [])
   const onExpandLeave = useCallback(() => setRect(null), [])
 
+  // ── callback ref: plays as soon as the <video> node is in the DOM ──
+  const videoCallbackRef = useCallback((node: HTMLVideoElement | null) => {
+    if (!node) return
+    node.currentTime = 0
+    node.play().catch(() => {})
+  }, [])
+
   // Dismiss on scroll
   useEffect(() => {
     if (!rect) return
@@ -68,34 +76,23 @@ export default function HoverCard({ video, children }: HoverCardProps) {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
       setUser(session.user)
-
       const { data } = await supabase
-        .from('watchlist')
-        .select('id')
-        .eq('user_id', session.user.id)
-        .eq('video_id', video.id)
-        .single()
-
+        .from('watchlist').select('id')
+        .eq('user_id', session.user.id).eq('video_id', video.id).single()
       setInWatchlist(!!data)
     }
     init()
   }, [video.id])
 
   const toggleWatchlist = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
+    e.preventDefault(); e.stopPropagation()
     if (!user || wlLoading) return
     setWlLoading(true)
-
     if (inWatchlist) {
-      await supabase.from('watchlist')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('video_id', video.id)
+      await supabase.from('watchlist').delete().eq('user_id', user.id).eq('video_id', video.id)
       setInWatchlist(false)
     } else {
-      await supabase.from('watchlist')
-        .insert({ user_id: user.id, video_id: video.id })
+      await supabase.from('watchlist').insert({ user_id: user.id, video_id: video.id })
       setInWatchlist(true)
     }
     setWlLoading(false)
@@ -103,6 +100,7 @@ export default function HoverCard({ video, children }: HoverCardProps) {
 
   // ── derived ──────────────────────────────────────────────
   const thumbnailUrl = video.thumbnail_url ? getStorageUrl(video.thumbnail_url) : null
+  const videoUrl     = video.video_url     ? getStorageUrl(video.video_url)     : null
   const matchPct     = Math.floor(72 + Math.abs(video.id.charCodeAt(0) % 27))
   const year         = video.created_at ? new Date(video.created_at).getFullYear() : null
 
@@ -110,63 +108,70 @@ export default function HoverCard({ video, children }: HoverCardProps) {
   const getPopupStyle = (r: DOMRect): React.CSSProperties => {
     const popupW = Math.max(r.width * 1.15, 240)
     const vw = window.innerWidth
-
     let left = r.left + r.width / 2 - popupW / 2
     if (left < 12) left = 12
     if (left + popupW > vw - 12) left = vw - popupW - 12
-
-    return {
-      position: 'fixed',
-      top: r.top,
-      left,
-      width: popupW,
-      zIndex: 99999,
-    }
+    return { position: 'fixed', top: r.top, left, width: popupW, zIndex: 99999 }
   }
 
   // ── expanded card (portal) ───────────────────────────────
   const expandedCard = rect && (
-    <div
-      onMouseEnter={onExpandEnter}
-      onMouseLeave={onExpandLeave}
-      style={getPopupStyle(rect)}
-    >
+    <div onMouseEnter={onExpandEnter} onMouseLeave={onExpandLeave} style={getPopupStyle(rect)}>
       <style>{`
         @keyframes hceExpand {
           from { opacity: 0.6; transform: scale(0.94) translateY(4px); }
           to   { opacity: 1;   transform: scale(1)    translateY(0); }
         }
         .hce-card {
-          border-radius: 10px; overflow: hidden;
-          background: #16121f;
+          border-radius: 10px; overflow: hidden; background: #16121f;
           border: 1px solid rgba(201,168,76,0.22);
           box-shadow: 0 24px 64px rgba(0,0,0,0.92), 0 0 0 1px rgba(201,168,76,0.08);
           animation: hceExpand 0.22s cubic-bezier(0.34,1.4,0.64,1) forwards;
-          font-family: 'Nunito', sans-serif;
-          cursor: default;
+          font-family: 'Nunito', sans-serif; cursor: default;
         }
-        .hce-thumb { width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; background: #1e1828; }
-        .hce-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .hce-thumb-emoji { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 40px; background: linear-gradient(135deg,#16121f,#1e1828); }
-        .hce-overlay { position: absolute; inset: 0; background: linear-gradient(to top, #16121f 0%, rgba(22,18,31,0.15) 55%, transparent 100%); }
+        .hce-thumb {
+          width: 100%; aspect-ratio: 16/9; position: relative;
+          overflow: hidden; background: #1e1828;
+        }
+        .hce-thumb video {
+          width: 100%; height: 100%; object-fit: cover; display: block;
+          position: relative; z-index: 2;
+        }
+        .hce-thumb img {
+          width: 100%; height: 100%; object-fit: cover; display: block;
+          position: absolute; inset: 0; z-index: 1;
+        }
+        .hce-thumb-emoji {
+          width: 100%; height: 100%; display: flex; align-items: center;
+          justify-content: center; font-size: 40px;
+          background: linear-gradient(135deg,#16121f,#1e1828);
+        }
+        .hce-overlay {
+          position: absolute; inset: 0; z-index: 3;
+          background: linear-gradient(to top, #16121f 0%, rgba(22,18,31,0.15) 55%, transparent 100%);
+          pointer-events: none;
+        }
         .hce-body { background: #16121f; }
         .hce-title-row { padding: 12px 14px 4px; }
-        .hce-title { font-family: 'Cinzel', serif; font-size: 13px; font-weight: 700; color: #f0e6d3; margin: 0; letter-spacing: 0.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hce-title {
+          font-family: 'Cinzel', serif; font-size: 13px; font-weight: 700;
+          color: #f0e6d3; margin: 0; letter-spacing: 0.3px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
         .hce-actions { display: flex; align-items: center; gap: 7px; padding: 8px 14px 10px; }
         .hce-play {
-          width: 32px; height: 32px; border-radius: 50%;
-          background: #f0e6d3; display: flex; align-items: center; justify-content: center;
+          width: 32px; height: 32px; border-radius: 50%; background: #f0e6d3;
+          display: flex; align-items: center; justify-content: center;
           font-size: 11px; color: #0a0812; border: none; cursor: pointer;
           flex-shrink: 0; transition: background 0.15s, transform 0.15s;
           text-decoration: none; padding-left: 2px;
         }
         .hce-play:hover { background: #fff; transform: scale(1.1); }
         .hce-icon {
-          width: 28px; height: 28px; border-radius: 50%;
-          background: transparent; border: 1.5px solid rgba(240,230,211,0.28);
-          display: flex; align-items: center; justify-content: center;
-          font-size: 12px; cursor: pointer; color: rgba(240,230,211,0.6);
-          transition: border-color 0.15s, color 0.15s, background 0.15s;
+          width: 28px; height: 28px; border-radius: 50%; background: transparent;
+          border: 1.5px solid rgba(240,230,211,0.28); display: flex; align-items: center;
+          justify-content: center; font-size: 12px; cursor: pointer;
+          color: rgba(240,230,211,0.6); transition: border-color 0.15s, color 0.15s, background 0.15s;
           flex-shrink: 0; text-decoration: none;
         }
         .hce-icon:hover { border-color: #f0e6d3; color: #f0e6d3; }
@@ -182,26 +187,37 @@ export default function HoverCard({ video, children }: HoverCardProps) {
       `}</style>
 
       <div className="hce-card">
-        {/* Thumbnail */}
         <div className="hce-thumb">
-          {thumbnailUrl
-            ? <img src={thumbnailUrl} alt={video.title} />
-            : <div className="hce-thumb-emoji">🎬</div>
-          }
+          {videoUrl ? (
+            <>
+              <video
+                ref={videoCallbackRef}
+                src={videoUrl}
+                muted
+                playsInline
+                loop
+                preload="auto"
+              />
+              {thumbnailUrl && (
+                <img src={thumbnailUrl} alt={video.title} />
+              )}
+            </>
+          ) : thumbnailUrl ? (
+            <img src={thumbnailUrl} alt={video.title} />
+          ) : (
+            <div className="hce-thumb-emoji">🎬</div>
+          )}
           <div className="hce-overlay" />
         </div>
 
-        {/* Body */}
         <div className="hce-body">
           <div className="hce-title-row">
             <p className="hce-title">{video.title}</p>
           </div>
 
           <div className="hce-actions">
-            {/* Play */}
             <Link href={`/watch/${video.id}`} className="hce-play">▶</Link>
 
-            {/* Watchlist */}
             {user && (
               <button
                 className={`hce-icon${inWatchlist ? ' wl-active' : ''}`}
@@ -214,8 +230,6 @@ export default function HoverCard({ video, children }: HoverCardProps) {
             )}
 
             <div style={{ flex: 1 }} />
-
-            {/* More info */}
             <Link href={`/watch/${video.id}`} className="hce-icon" title="More info">ⓘ</Link>
           </div>
 
@@ -229,9 +243,7 @@ export default function HoverCard({ video, children }: HoverCardProps) {
             <span className="hce-cat">{video.category}</span>
           </div>
 
-          {video.description && (
-            <p className="hce-desc">{video.description}</p>
-          )}
+          {video.description && <p className="hce-desc">{video.description}</p>}
         </div>
       </div>
     </div>
@@ -241,12 +253,7 @@ export default function HoverCard({ video, children }: HoverCardProps) {
     <>
       <div
         ref={cardRef}
-        style={{
-          position: 'relative',
-          flexShrink: 0,
-          transition: 'opacity 0.15s',
-          opacity: rect ? 0.5 : 1,
-        }}
+        style={{ position: 'relative', flexShrink: 0, transition: 'opacity 0.15s', opacity: rect ? 0.5 : 1 }}
         onMouseEnter={onCardEnter}
         onMouseLeave={onCardLeave}
       >

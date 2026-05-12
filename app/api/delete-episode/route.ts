@@ -8,19 +8,13 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Extract MinIO object key from a full URL or stored path
 function extractMinioKey(value: string): string | null {
   if (!value) return null
-  // Already a plain path like "videos/123_file.mp4"
   if (!value.startsWith('http')) return value
   try {
     const url = new URL(value)
-    // Strip leading slash + bucket name: /{bucket}/{key} → {key}
     const parts = url.pathname.split('/').filter(Boolean)
-    if (parts[0] === BUCKET) {
-      return parts.slice(1).join('/')
-    }
-    // Fallback: return everything after the first path segment
+    if (parts[0] === BUCKET) return parts.slice(1).join('/')
     return parts.slice(1).join('/')
   } catch {
     return null
@@ -47,72 +41,62 @@ export async function DELETE(req: NextRequest) {
 
     // Check admin
     const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', user.id)
-      .single()
+      .from('profiles').select('is_admin').eq('id', user.id).single()
     if (!profile?.is_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-    const { videoId } = await req.json()
-    if (!videoId) return NextResponse.json({ error: 'videoId required' }, { status: 400 })
+    const { episodeId } = await req.json()
+    if (!episodeId) return NextResponse.json({ error: 'episodeId required' }, { status: 400 })
 
-    // Fetch video record
-    const { data: video, error: fetchError } = await supabaseAdmin
-      .from('videos')
-      .select('video_url, thumbnail_url')
-      .eq('id', videoId)
-      .single()
+    // Fetch episode record
+    const { data: episode, error: fetchError } = await supabaseAdmin
+      .from('episodes').select('video_url, thumbnail_url').eq('id', episodeId).single()
 
-    if (fetchError || !video) {
-      return NextResponse.json({ error: 'Video not found' }, { status: 404 })
+    if (fetchError || !episode) {
+      return NextResponse.json({ error: 'Episode not found' }, { status: 404 })
     }
 
     const storageErrors: string[] = []
 
     // Delete video file from MinIO
-    const videoKey = extractMinioKey(video.video_url)
+    const videoKey = extractMinioKey(episode.video_url)
     if (videoKey) {
       const result = await deleteFromMinio(videoKey)
       if (!result.ok) {
-        console.error('Failed to delete video from MinIO:', result.error)
-        storageErrors.push(`Video file: ${result.error}`)
+        console.error('Failed to delete episode video from MinIO:', result.error)
+        storageErrors.push(`Video: ${result.error}`)
       }
     }
 
-    // Delete thumbnail from MinIO (only if it's a MinIO URL, not a Supabase URL)
-    if (video.thumbnail_url) {
-      const thumbKey = extractMinioKey(video.thumbnail_url)
-      // Only attempt MinIO deletion if it looks like a MinIO path (not a Supabase storage URL)
-      const isSupabaseUrl = video.thumbnail_url.includes('supabase.co/storage')
+    // Delete thumbnail from MinIO
+    if (episode.thumbnail_url) {
+      const isSupabaseUrl = episode.thumbnail_url.includes('supabase.co/storage')
+      const thumbKey = extractMinioKey(episode.thumbnail_url)
       if (thumbKey && !isSupabaseUrl) {
         const result = await deleteFromMinio(thumbKey)
         if (!result.ok) {
-          console.error('Failed to delete thumbnail from MinIO:', result.error)
+          console.error('Failed to delete episode thumbnail from MinIO:', result.error)
           storageErrors.push(`Thumbnail: ${result.error}`)
         }
       }
     }
 
-    // Delete from database — always do this even if storage cleanup had issues
+    // Delete from database
     const { error: dbError } = await supabaseAdmin
-      .from('videos')
-      .delete()
-      .eq('id', videoId)
+      .from('episodes').delete().eq('id', episodeId)
 
     if (dbError) {
       return NextResponse.json({ error: `Database error: ${dbError.message}` }, { status: 500 })
     }
 
-    // Return success but include any storage warnings so client knows
     return NextResponse.json({
       success: true,
       ...(storageErrors.length > 0 && {
         warnings: storageErrors,
-        message: 'Video deleted from database but some storage files could not be removed.',
+        message: 'Episode deleted but some storage files could not be removed.',
       }),
     })
   } catch (err: any) {
-    console.error('Delete video error:', err)
+    console.error('Delete episode error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

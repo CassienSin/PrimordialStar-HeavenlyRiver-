@@ -6,9 +6,9 @@ import Link from 'next/link'
 import Navbar from '../components/Navbar'
 import { getStorageUrl } from '../lib/storage'
 
-const ALL_CATEGORIES = ['Anime', 'Donghua', 'Movie', 'Other']
+const ALL_CATEGORIES = ['Anime', 'Donghua', 'Movie', 'Series', 'Other']
 const CATEGORY_ICONS: Record<string, string> = {
-  Anime: '', Donghua: '', Movie: '', Other: '',
+  Anime: '', Donghua: '', Movie: '', Series: '', Other: '',
 }
 
 export default function SearchPage() {

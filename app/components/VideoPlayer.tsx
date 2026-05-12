@@ -2,6 +2,15 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface SubtitleCue {
+  id: string
+  start: number   // seconds
+  end: number     // seconds
+  text: string
+}
+
 interface VideoPlayerProps {
   src?: string
   title?: string
@@ -11,10 +20,13 @@ interface VideoPlayerProps {
   rating?: string | number
   synopsis?: string
   poster?: string
+  initialSubtitles?: SubtitleCue[]
   onBack?: () => void
   onTimeUpdate?: (currentTime: number) => void
   onDelete?: () => void
 }
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function fmt(s: number) {
   s = Math.floor(s)
@@ -25,6 +37,73 @@ function fmt(s: number) {
   return `${m}:${String(sec).padStart(2, '0')}`
 }
 
+/** "1:23:45" | "1:23" | "83" → seconds */
+function parseTime(raw: string): number | null {
+  const s = raw.trim()
+  if (!s) return null
+  const parts = s.split(':').map(Number)
+  if (parts.some(isNaN)) return null
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  return parts[0]
+}
+
+/**
+ * Parse VTT / SRT text into cues.
+ * Handles both:
+ *   00:00:01.000 --> 00:00:03.000   (VTT / SRT)
+ *   0:01 --> 0:03                   (shorthand)
+ */
+function parseSubtitleFile(text: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = []
+  // Normalise CRLF and strip BOM
+  const lines = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').split('\n')
+
+  const timeRe = /(\d[\d:.]*)\s*-->\s*(\d[\d:.]*)/
+
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i].trim()
+    const match = line.match(timeRe)
+    if (match) {
+      const start = parseTimecode(match[1])
+      const end   = parseTimecode(match[2])
+      const textLines: string[] = []
+      i++
+      while (i < lines.length && lines[i].trim() !== '' && !lines[i].match(timeRe) && !/^\d+$/.test(lines[i].trim())) {
+        textLines.push(lines[i].trim())
+        i++
+      }
+      if (start !== null && end !== null && textLines.length) {
+        cues.push({ id: crypto.randomUUID(), start, end, text: textLines.join('\n') })
+      }
+      continue
+    }
+    i++
+  }
+  return cues
+}
+
+/** Handles HH:MM:SS.mmm / HH:MM:SS,mmm / MM:SS / raw seconds */
+function parseTimecode(raw: string): number | null {
+  const s = raw.replace(',', '.').trim()
+  const parts = s.split(':')
+  if (parts.length === 3) {
+    const [h, m, sec] = parts.map(parseFloat)
+    return h * 3600 + m * 60 + sec
+  }
+  if (parts.length === 2) {
+    const [m, sec] = parts.map(parseFloat)
+    return m * 60 + sec
+  }
+  const n = parseFloat(s)
+  return isNaN(n) ? null : n
+}
+
+function uid() { return crypto.randomUUID() }
+
+// ── Component ──────────────────────────────────────────────────────────────────
+
 export default function VideoPlayer({
   src,
   title,
@@ -34,28 +113,95 @@ export default function VideoPlayer({
   rating,
   synopsis,
   poster,
+  initialSubtitles = [],
   onBack,
   onTimeUpdate,
   onDelete,
 }: VideoPlayerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const progressRef = useRef<HTMLDivElement>(null)
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const videoRef      = useRef<HTMLVideoElement>(null)
+  const containerRef  = useRef<HTMLDivElement>(null)
+  const progressRef   = useRef<HTMLDivElement>(null)
+  const hideTimer     = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flashTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [totalTime, setTotalTime] = useState(0)
-  const [volume, setVolume] = useState(1)
-  const [isMuted, setIsMuted] = useState(false)
-  const [descOpen, setDescOpen] = useState(false)
+  const [isPlaying,       setIsPlaying]       = useState(false)
+  const [progress,        setProgress]        = useState(0)
+  const [currentTime,     setCurrentTime]     = useState(0)
+  const [totalTime,       setTotalTime]       = useState(0)
+  const [volume,          setVolume]          = useState(1)
+  const [isMuted,         setIsMuted]         = useState(false)
+  const [descOpen,        setDescOpen]        = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
-  const [flashState, setFlashState] = useState<'play' | 'pause' | null>(null)
-  const [scrubbing, setScrubbing] = useState(false)
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [flashState,      setFlashState]      = useState<'play' | 'pause' | null>(null)
+  const [scrubbing,       setScrubbing]       = useState(false)
+  const [isFullscreen,    setIsFullscreen]    = useState(false)
 
+  // ── Subtitle state ──────────────────────────────────────────────────────────
+  const [cues,            setCues]            = useState<SubtitleCue[]>(initialSubtitles)
+  const [subsEnabled,     setSubsEnabled]     = useState(true)
+  const [activeCue,       setActiveCue]       = useState<SubtitleCue | null>(null)
+  const [adminOpen,       setAdminOpen]       = useState(false)
+
+  // Admin form state
+  const [editingCue, setEditingCue] = useState<SubtitleCue | null>(null)
+  const [formStart,  setFormStart]  = useState('')
+  const [formEnd,    setFormEnd]    = useState('')
+  const [formText,   setFormText]   = useState('')
+  const [formError,  setFormError]  = useState('')
+
+  // ── Subtitle engine ────────────────────────────────────────────────────────
+  // Drive subtitle lookup via rAF — reads video.currentTime directly at 60fps,
+  // bypassing React state lag and the coarse timeupdate event (~4Hz).
+  // All refs so the rAF loop never goes stale without re-registering.
+  const cuesRef        = useRef<SubtitleCue[]>(cues)
+  const subsEnabledRef = useRef(subsEnabled)
+  const rafRef         = useRef<number | null>(null)
+  const lastCueIdRef   = useRef<string | null>(null)
+
+  useEffect(() => { cuesRef.current = cues }, [cues])
+  useEffect(() => { subsEnabledRef.current = subsEnabled }, [subsEnabled])
+
+  // Binary-search sorted cues for the cue active at time t
+  const findCue = useCallback((t: number): SubtitleCue | null => {
+    if (!subsEnabledRef.current) return null
+    const arr = cuesRef.current
+    // Linear scan is fine for typical subtitle counts (<2000 cues)
+    for (let i = 0; i < arr.length; i++) {
+      if (t >= arr[i].start && t < arr[i].end) return arr[i]
+    }
+    return null
+  }, [])
+
+  // rAF loop — only calls setActiveCue when the cue actually changes
+  const rafLoop = useCallback(() => {
+    const v = videoRef.current
+    const t = v ? v.currentTime : 0
+    const found = findCue(t)
+    const foundId = found?.id ?? null
+    if (foundId !== lastCueIdRef.current) {
+      lastCueIdRef.current = foundId
+      setActiveCue(found)
+    }
+    rafRef.current = requestAnimationFrame(rafLoop)
+  }, [findCue])
+
+  // Start/stop the rAF loop
+  useEffect(() => {
+    rafRef.current = requestAnimationFrame(rafLoop)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [rafLoop])
+
+  // When cues or subsEnabled change while paused, force an immediate re-check
+  useEffect(() => {
+    const v = videoRef.current
+    const t = v ? v.currentTime : 0
+    const found = findCue(t)
+    const foundId = found?.id ?? null
+    lastCueIdRef.current = foundId
+    setActiveCue(found)
+  }, [cues, subsEnabled, findCue])
+
+  // ── Controls auto-hide ──────────────────────────────────────────────────────
   const showControls = useCallback(() => {
     setControlsVisible(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
@@ -71,6 +217,16 @@ export default function VideoPlayer({
     }
   }, [isPlaying])
 
+  // FIX 2: Clean up pending timers on unmount to prevent setState on an
+  // unmounted component and avoid memory leaks.
+  useEffect(() => {
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+      if (flashTimer.current) clearTimeout(flashTimer.current)
+    }
+  }, [])
+
+  // ── Video event listeners ───────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
@@ -79,8 +235,8 @@ export default function VideoPlayer({
       setProgress(v.duration ? v.currentTime / v.duration : 0)
       onTimeUpdate?.(v.currentTime)
     }
-    const onMeta = () => setTotalTime(v.duration)
-    const onEnded = () => setIsPlaying(false)
+    const onMeta   = () => setTotalTime(v.duration)
+    const onEnded  = () => setIsPlaying(false)
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('loadedmetadata', onMeta)
     v.addEventListener('ended', onEnded)
@@ -91,110 +247,117 @@ export default function VideoPlayer({
     }
   }, [])
 
-  // Track fullscreen state to unlock orientation on browser-native exit (e.g. swipe down)
+  // ── Fullscreen change listener ──────────────────────────────────────────────
   useEffect(() => {
     const onFsChange = () => {
       const inFs = !!document.fullscreenElement
       setIsFullscreen(inFs)
-      if (!inFs) {
-        try { (screen.orientation as any).unlock?.() } catch {}
-      }
+      if (!inFs) { try { (screen.orientation as any).unlock?.() } catch {} }
     }
     document.addEventListener('fullscreenchange', onFsChange)
     return () => document.removeEventListener('fullscreenchange', onFsChange)
   }, [])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return
-      if (e.code === 'Space') { e.preventDefault(); togglePlay() }
-      if (e.code === 'ArrowLeft') skip(-10)
-      if (e.code === 'ArrowRight') skip(10)
-      if (e.code === 'KeyM') toggleMute()
-      if (e.code === 'KeyF') toggleFullscreen()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
-
-  const flash = (state: 'play' | 'pause') => {
+  // ── Playback ────────────────────────────────────────────────────────────────
+  const flash = useCallback((state: 'play' | 'pause') => {
     setFlashState(state)
     if (flashTimer.current) clearTimeout(flashTimer.current)
     flashTimer.current = setTimeout(() => setFlashState(null), 600)
-  }
+  }, [])
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     const v = videoRef.current
     if (!v && !src) {
       setIsPlaying(p => { flash(p ? 'pause' : 'play'); return !p })
       return
     }
     if (!v) return
-    if (isPlaying) { v.pause(); flash('pause') }
-    else { v.play(); flash('play') }
-    setIsPlaying(p => !p)
-  }
+    setIsPlaying(p => {
+      if (p) { v.pause(); flash('pause') }
+      else   { v.play();  flash('play')  }
+      return !p
+    })
+  }, [src, flash])
 
-  const skip = (sec: number) => {
+  const skip = useCallback((sec: number) => {
     const v = videoRef.current
     if (v) v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + sec))
-    else setCurrentTime(t => Math.max(0, t + sec))
-  }
+    else   setCurrentTime(t => Math.max(0, t + sec))
+  }, [])
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     const v = videoRef.current
-    const next = !isMuted
-    if (v) v.muted = next
-    setIsMuted(next)
-  }
+    setIsMuted(prev => {
+      const next = !prev
+      if (v) v.muted = next
+      return next
+    })
+  }, [])
 
-  const changeVolume = (val: number) => {
+  const changeVolume = useCallback((val: number) => {
     const v = videoRef.current
     if (v) v.volume = val
     setVolume(val)
     setIsMuted(val === 0)
-  }
+  }, [])
 
-  const toggleFullscreen = async () => {
+  const toggleFullscreen = useCallback(async () => {
     const el = containerRef.current
     if (!el) return
     if (!document.fullscreenElement) {
       await el.requestFullscreen?.()
-      // Lock to landscape on mobile devices
-      try {
-        await (screen.orientation as any).lock?.('landscape')
-      } catch {
-        // Orientation lock not supported on all browsers/devices — silently ignore
-      }
+      try { await (screen.orientation as any).lock?.('landscape') } catch {}
     } else {
       await document.exitFullscreen?.()
-      try {
-        ;(screen.orientation as any).unlock?.()
-      } catch {}
+      try { (screen.orientation as any).unlock?.() } catch {}
     }
-  }
+  }, [])
 
-  // ── Scrubbing helpers (mouse + touch) ─────────────────────────────────────
+  // FIX 1: Added stable refs for keyboard-shortcut callbacks so the effect can
+  // safely use [] as its dependency array — preventing the listener from being
+  // torn down and re-added on every render.
+  const togglePlayRef    = useRef(togglePlay)
+  const skipRef          = useRef(skip)
+  const toggleMuteRef    = useRef(toggleMute)
+  const toggleFsRef      = useRef(toggleFullscreen)
+  const setSubsEnabledRef = useRef(setSubsEnabled)
 
-  const scrub = useCallback(
-    (clientX: number) => {
-      const bar = progressRef.current
-      if (!bar) return
-      const rect = bar.getBoundingClientRect()
-      const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-      const v = videoRef.current
-      if (v && v.duration) v.currentTime = frac * v.duration
-      setProgress(frac)
-      setCurrentTime(frac * (totalTime || 9456))
-    },
-    [totalTime]
-  )
+  useEffect(() => { togglePlayRef.current    = togglePlay },    [togglePlay])
+  useEffect(() => { skipRef.current          = skip },          [skip])
+  useEffect(() => { toggleMuteRef.current    = toggleMute },    [toggleMute])
+  useEffect(() => { toggleFsRef.current      = toggleFullscreen }, [toggleFullscreen])
 
-  // Mouse scrub
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.code === 'Space')      { e.preventDefault(); togglePlayRef.current() }
+      if (e.code === 'ArrowLeft')  skipRef.current(-10)
+      if (e.code === 'ArrowRight') skipRef.current(10)
+      if (e.code === 'KeyM')       toggleMuteRef.current()
+      if (e.code === 'KeyF')       toggleFsRef.current()
+      if (e.code === 'KeyC')       setSubsEnabledRef.current(s => !s)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, []) // ← stable: listener is registered once and uses up-to-date refs
+
+  // ── Scrubbing ───────────────────────────────────────────────────────────────
+  const scrub = useCallback((clientX: number) => {
+    const bar = progressRef.current
+    if (!bar) return
+    const rect = bar.getBoundingClientRect()
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    const v = videoRef.current
+    const t = frac * (totalTime || 9456)
+    if (v && v.duration) v.currentTime = frac * v.duration
+    setProgress(frac)
+    setCurrentTime(t)
+  }, [totalTime])
+
   useEffect(() => {
     if (!scrubbing) return
     const onMove = (e: MouseEvent) => scrub(e.clientX)
-    const onUp = () => setScrubbing(false)
+    const onUp   = () => setScrubbing(false)
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => {
@@ -203,32 +366,116 @@ export default function VideoPlayer({
     }
   }, [scrubbing, scrub])
 
-  // Touch scrub
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      e.preventDefault()
-      scrub(e.touches[0].clientX)
-    },
-    [scrub]
-  )
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault()
+    scrub(e.touches[0].clientX)
+  }, [scrub])
 
-  const pct = `${(progress * 100).toFixed(2)}%`
+  // ── Subtitle admin helpers ──────────────────────────────────────────────────
+  const sortedCues = [...cues].sort((a, b) => a.start - b.start)
+
+  const openNewCueForm = () => {
+    setEditingCue(null)
+    setFormStart(fmt(currentTime))
+    // FIX 3: Clamp end time to video duration instead of using a no-op Math.max.
+    setFormEnd(fmt(Math.min(currentTime + 2, totalTime || currentTime + 2)))
+    setFormText('')
+    setFormError('')
+  }
+
+  const openEditCueForm = (cue: SubtitleCue) => {
+    setEditingCue(cue)
+    setFormStart(fmt(cue.start))
+    setFormEnd(fmt(cue.end))
+    setFormText(cue.text)
+    setFormError('')
+  }
+
+  const saveCue = () => {
+    const s = parseTime(formStart)
+    const e = parseTime(formEnd)
+    if (s === null || e === null) { setFormError('Invalid time format. Use m:ss or h:mm:ss'); return }
+    if (e <= s)                   { setFormError('End time must be after start time'); return }
+    if (!formText.trim())         { setFormError('Subtitle text cannot be empty'); return }
+    setFormError('')
+
+    if (editingCue) {
+      setCues(prev => prev.map(c => c.id === editingCue.id ? { ...c, start: s, end: e, text: formText.trim() } : c))
+    } else {
+      setCues(prev => [...prev, { id: uid(), start: s, end: e, text: formText.trim() }])
+    }
+    setEditingCue(null)
+    setFormStart(''); setFormEnd(''); setFormText('')
+  }
+
+  const deleteCue = (id: string) => setCues(prev => prev.filter(c => c.id !== id))
+
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const text = ev.target?.result as string
+      const parsed = parseSubtitleFile(text)
+      if (parsed.length === 0) { alert('No subtitle cues found in this file.'); return }
+      setCues(prev => [...prev, ...parsed])
+    }
+    // FIX 5: Handle file read errors instead of silently failing.
+    reader.onerror = () => alert('Failed to read subtitle file. Please try again.')
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const exportVTT = () => {
+    const lines = ['WEBVTT', '']
+    sortedCues.forEach((c, i) => {
+      const toVTT = (s: number) => {
+        const h = Math.floor(s / 3600)
+        const m = Math.floor((s % 3600) / 60)
+        const sec = (s % 60).toFixed(3).padStart(6, '0')
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${sec}`
+      }
+      lines.push(String(i + 1))
+      lines.push(`${toVTT(c.start)} --> ${toVTT(c.end)}`)
+      lines.push(c.text)
+      lines.push('')
+    })
+    const blob = new Blob([lines.join('\n')], { type: 'text/vtt' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `${title ?? 'subtitles'}.vtt`; a.click()
+  }
+
+  const pct          = `${(progress * 100).toFixed(2)}%`
   const displayTotal = totalTime ? fmt(totalTime) : duration
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Nunito:wght@300;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Nunito:wght@300;400;600;700&display=swap');
 
+        /* ── Player shell ────────────────────────────────────────────────── */
         .hr-player {
           position: relative; width: 100%; aspect-ratio: 16/9;
           background: #0a0812; border-radius: 10px; overflow: hidden;
           cursor: default; user-select: none;
           box-shadow: 0 40px 120px rgba(0,0,0,0.9), 0 0 0 1px rgba(201,168,76,0.12);
-          /* Ensure it never overflows its container on mobile */
           max-width: 100%;
         }
-        .hr-player:fullscreen { border-radius: 0; aspect-ratio: unset; width: 100dvw; height: 100dvh; }
+        .hr-player.hr-fullscreen,
+        .hr-player:fullscreen,
+        .hr-player:-webkit-full-screen {
+          position: fixed !important;
+          inset: 0 !important;
+          width: 100vw !important;
+          height: 100vh !important;
+          aspect-ratio: unset !important;
+          border-radius: 0 !important;
+          z-index: 9999 !important;
+        }
+        .hr-player.hr-fullscreen video,
+        .hr-player:fullscreen video,
+        .hr-player:-webkit-full-screen video { object-fit: contain; width: 100%; height: 100%; }
 
         .hr-poster {
           position: absolute; inset: 0;
@@ -238,7 +485,39 @@ export default function VideoPlayer({
             #0a0812;
         }
 
-        /* Overlay */
+        /* ── Subtitle display ────────────────────────────────────────────── */
+        .hr-subs {
+          position: absolute; left: 50%; transform: translateX(-50%);
+          bottom: 72px; /* sit above controls */
+          max-width: 88%; text-align: center; pointer-events: none;
+          transition: bottom .2s;
+          z-index: 10;
+        }
+        .hr-subs.controls-hidden { bottom: 16px; }
+        .hr-subs-text {
+          display: inline-block;
+          background: rgba(8,6,14,0.82);
+          border: 1px solid rgba(201,168,76,0.18);
+          backdrop-filter: blur(4px);
+          padding: 6px 16px 7px;
+          border-radius: 6px;
+          font-family: 'Nunito', sans-serif;
+          font-size: clamp(13px, 2.2vw, 18px);
+          font-weight: 600;
+          line-height: 1.55;
+          color: #f5ecdc;
+          white-space: pre-wrap;
+          text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+          letter-spacing: .01em;
+        }
+
+        .hr-subs-fade {
+          animation: hr-sub-in 0.15s ease forwards;
+        }
+        @keyframes hr-sub-in {
+          from { opacity: 0; transform: translateY(4px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
         .hr-overlay {
           position: absolute; inset: 0; display: flex; flex-direction: column;
           justify-content: flex-end; padding-bottom: 72px;
@@ -251,7 +530,6 @@ export default function VideoPlayer({
         .hr-overlay.hidden { opacity: 0; }
         .hr-overlay.paused { opacity: 1 !important; }
 
-        /* Meta */
         .hr-meta {
           position: relative; padding: 0 36px 20px;
           transform: translateY(12px); transition: transform .45s cubic-bezier(.4,0,.2,1);
@@ -281,7 +559,6 @@ export default function VideoPlayer({
         .hr-rating { display: flex; align-items: center; gap: 5px; }
         .hr-star { color: #c9a84c; font-size: 11px; }
 
-        /* Synopsis toggle */
         .hr-desc-toggle {
           display: flex; align-items: center; gap: 8px;
           background: none; border: none; cursor: pointer;
@@ -296,7 +573,7 @@ export default function VideoPlayer({
         .hr-desc-body.open { max-height: 120px; opacity: 1; }
         .hr-desc-body p { padding-top: 10px; font-size: 13px; line-height: 1.7; color: rgba(240,230,211,0.6); font-family: 'Nunito', sans-serif; font-weight: 300; font-style: italic; }
 
-        /* Controls bar */
+        /* ── Controls bar ────────────────────────────────────────────────── */
         .hr-controls {
           position: absolute; bottom: 0; left: 0; right: 0;
           padding: 8px 20px 14px;
@@ -306,17 +583,15 @@ export default function VideoPlayer({
         }
         .hr-controls.hidden { opacity: 0; pointer-events: none; }
 
-        /* Progress bar */
         .hr-prog-wrap {
           position: relative; height: 22px; display: flex;
-          align-items: center; cursor: pointer;
-          /* Larger tap area on touch */
-          touch-action: none;
+          align-items: center; cursor: pointer; touch-action: none;
         }
         .hr-prog-track {
           position: absolute; left: 0; right: 0; height: 4px;
           border-radius: 99px; background: rgba(201,168,76,0.15);
-          overflow: visible; transition: height .2s;
+          transition: height .2s;
+          overflow: visible;
         }
         .hr-prog-wrap:hover .hr-prog-track,
         .hr-prog-wrap:active .hr-prog-track { height: 7px; }
@@ -330,30 +605,36 @@ export default function VideoPlayer({
         .hr-prog-wrap:hover .hr-prog-thumb,
         .hr-prog-wrap:active .hr-prog-thumb { opacity: 1; }
 
-        /* Button row */
+        /* FIX 4: Subtitle cue tick marks on the progress bar */
+        .hr-prog-tick {
+          position: absolute; top: 50%; transform: translate(-50%, -50%);
+          width: 3px; height: 10px;
+          background: rgba(201,168,76,0.55);
+          border-radius: 2px;
+          pointer-events: none;
+        }
+
         .hr-btn-row { display: flex; align-items: center; gap: 6px; }
         .hr-btn {
           background: none; border: none; cursor: pointer; color: #f0e6d3;
           display: flex; align-items: center; justify-content: center;
           padding: 5px; border-radius: 5px;
           transition: background .15s, transform .1s, color .2s;
-          /* Bigger tap area on mobile */
           min-width: 36px; min-height: 36px;
         }
         .hr-btn:hover { background: rgba(201,168,76,0.1); color: #c9a84c; transform: scale(1.08); }
         .hr-btn.hr-btn-danger:hover { background: rgba(192,57,43,0.15); color: #e74c3c; }
+        .hr-btn.active { color: #c9a84c; }
         .hr-btn svg { display: block; }
 
         .hr-time {
           font-size: 11.5px; color: rgba(240,230,211,0.45);
           letter-spacing: .04em; font-variant-numeric: tabular-nums;
-          font-family: 'Nunito', sans-serif; font-weight: 300;
-          white-space: nowrap;
+          font-family: 'Nunito', sans-serif; font-weight: 300; white-space: nowrap;
         }
         .hr-time span { color: #f0e6d3; font-weight: 600; }
         .hr-spacer { flex: 1; min-width: 4px; }
 
-        /* Volume */
         .hr-vol-wrap { display: flex; align-items: center; gap: 7px; }
         .hr-vol-slider {
           -webkit-appearance: none; appearance: none;
@@ -362,7 +643,7 @@ export default function VideoPlayer({
           outline: none; accent-color: #c9a84c;
         }
 
-        /* Back button */
+        /* ── Back button ─────────────────────────────────────────────────── */
         .hr-back {
           position: absolute; top: 18px; left: 20px;
           width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
@@ -372,7 +653,7 @@ export default function VideoPlayer({
         }
         .hr-back:hover { background: rgba(201,168,76,0.12); border-color: rgba(201,168,76,0.4); }
 
-        /* Center flash */
+        /* ── Center flash ────────────────────────────────────────────────── */
         .hr-flash { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; transition: opacity .2s; }
         .hr-flash.show { opacity: 1; }
         .hr-flash-ring {
@@ -384,6 +665,138 @@ export default function VideoPlayer({
         }
         .hr-flash.show .hr-flash-ring { transform: scale(1); }
 
+        /* ── Admin panel ─────────────────────────────────────────────────── */
+        .hr-admin-panel {
+          position: absolute; inset: 0;
+          background: rgba(8,6,14,0.96);
+          backdrop-filter: blur(12px);
+          z-index: 50;
+          display: flex; flex-direction: column;
+          font-family: 'Nunito', sans-serif;
+          animation: hr-fadein .2s ease;
+          overflow: hidden;
+        }
+        @keyframes hr-fadein { from { opacity:0; transform: scale(.98) } to { opacity:1; transform:scale(1) } }
+
+        .hr-admin-header {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 14px 20px 10px;
+          border-bottom: 1px solid rgba(201,168,76,0.12);
+          flex-shrink: 0;
+        }
+        .hr-admin-header h2 {
+          font-family: 'Cinzel', serif; font-size: 13px; letter-spacing: 3px;
+          text-transform: uppercase; color: #c9a84c; margin: 0;
+        }
+        .hr-admin-actions { display: flex; gap: 8px; align-items: center; }
+
+        .hr-admin-body {
+          display: flex; flex: 1; overflow: hidden; gap: 0;
+        }
+
+        /* Cue list */
+        .hr-cue-list {
+          flex: 1; overflow-y: auto; padding: 10px 0;
+          border-right: 1px solid rgba(201,168,76,0.08);
+        }
+        .hr-cue-list::-webkit-scrollbar { width: 4px; }
+        .hr-cue-list::-webkit-scrollbar-track { background: transparent; }
+        .hr-cue-list::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 99px; }
+
+        .hr-cue-item {
+          display: flex; align-items: flex-start; gap: 10px;
+          padding: 8px 16px; cursor: pointer;
+          border-left: 3px solid transparent;
+          transition: background .15s, border-color .15s;
+        }
+        .hr-cue-item:hover { background: rgba(201,168,76,0.06); }
+        .hr-cue-item.active-cue { border-left-color: #c9a84c; background: rgba(201,168,76,0.08); }
+        .hr-cue-item.editing  { border-left-color: #c0392b; }
+
+        .hr-cue-times {
+          font-size: 10px; color: rgba(201,168,76,0.6);
+          white-space: nowrap; flex-shrink: 0;
+          padding-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: .03em;
+        }
+        .hr-cue-text {
+          font-size: 12px; color: rgba(240,230,211,0.75); line-height: 1.45;
+          flex: 1; overflow: hidden; text-overflow: ellipsis;
+          display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        }
+        .hr-cue-del {
+          background: none; border: none; cursor: pointer; padding: 2px 4px;
+          color: rgba(240,230,211,0.25); transition: color .15s; flex-shrink: 0;
+        }
+        .hr-cue-del:hover { color: #e74c3c; }
+        .hr-cue-edit {
+          background: none; border: none; cursor: pointer; padding: 2px 4px;
+          color: rgba(240,230,211,0.25); transition: color .15s; flex-shrink: 0;
+        }
+        .hr-cue-edit:hover { color: #c9a84c; }
+
+        .hr-no-cues {
+          padding: 24px 16px; text-align: center;
+          font-size: 12px; color: rgba(240,230,211,0.25); font-style: italic;
+        }
+
+        /* Add / Edit form */
+        .hr-cue-form {
+          width: 220px; flex-shrink: 0;
+          padding: 14px 16px;
+          border-left: 1px solid rgba(201,168,76,0.08);
+          display: flex; flex-direction: column; gap: 10px;
+          overflow-y: auto;
+        }
+        .hr-cue-form h3 {
+          font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 2.5px;
+          text-transform: uppercase; color: rgba(201,168,76,0.6); margin: 0 0 2px;
+        }
+        .hr-field { display: flex; flex-direction: column; gap: 4px; }
+        .hr-field label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(201,168,76,0.5); }
+        .hr-field input,
+        .hr-field textarea {
+          background: rgba(201,168,76,0.05);
+          border: 1px solid rgba(201,168,76,0.15);
+          border-radius: 5px; color: #f0e6d3;
+          font-family: 'Nunito', sans-serif; font-size: 12px;
+          padding: 6px 9px; outline: none;
+          transition: border-color .2s;
+          resize: none;
+        }
+        .hr-field input:focus,
+        .hr-field textarea:focus { border-color: rgba(201,168,76,0.45); }
+        .hr-field textarea { height: 68px; }
+        .hr-form-error { font-size: 10px; color: #e74c3c; }
+        .hr-form-hint { font-size: 10px; color: rgba(240,230,211,0.25); }
+
+        .hr-btn-gold {
+          background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3);
+          color: #c9a84c; font-family: 'Nunito', sans-serif; font-size: 11px;
+          font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+          padding: 7px 12px; border-radius: 6px; cursor: pointer;
+          transition: background .2s, border-color .2s;
+        }
+        .hr-btn-gold:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.5); }
+        .hr-btn-ghost {
+          background: none; border: 1px solid rgba(240,230,211,0.12);
+          color: rgba(240,230,211,0.45); font-family: 'Nunito', sans-serif; font-size: 11px;
+          font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+          padding: 7px 12px; border-radius: 6px; cursor: pointer;
+          transition: background .2s, border-color .2s, color .2s;
+        }
+        .hr-btn-ghost:hover { background: rgba(240,230,211,0.06); border-color: rgba(240,230,211,0.25); color: #f0e6d3; }
+
+        .hr-import-label {
+          display: inline-block;
+          background: none; border: 1px solid rgba(240,230,211,0.12);
+          color: rgba(240,230,211,0.45); font-family: 'Nunito', sans-serif; font-size: 11px;
+          font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+          padding: 6px 10px; border-radius: 6px; cursor: pointer;
+          transition: background .2s, border-color .2s, color .2s;
+        }
+        .hr-import-label:hover { background: rgba(240,230,211,0.06); border-color: rgba(240,230,211,0.25); color: #f0e6d3; }
+        .hr-import-input { display: none; }
+
         /* ── Mobile overrides ────────────────────────────────────────────── */
         @media (max-width: 540px) {
           .hr-meta { padding: 0 14px 10px; }
@@ -392,33 +805,27 @@ export default function VideoPlayer({
           .hr-meta-row { font-size: 10px; gap: 7px; margin-bottom: 8px; }
           .hr-desc-toggle { font-size: 10px; letter-spacing: 1.5px; }
           .hr-desc-body p { font-size: 11px; }
-
           .hr-controls { padding: 4px 10px 10px; gap: 4px; }
           .hr-btn { padding: 3px; min-width: 32px; min-height: 32px; }
           .hr-time { font-size: 10px; }
-
-          /* Hide the volume slider (keep mute button) on narrow screens */
           .hr-vol-slider { display: none; }
-
           .hr-back { top: 10px; left: 10px; width: 30px; height: 30px; }
           .hr-flash-ring { width: 52px; height: 52px; }
-
-          /* Overlay sits a bit higher so controls don't cover meta */
           .hr-overlay { padding-bottom: 64px; }
+          .hr-subs { bottom: 64px; }
+          .hr-subs.controls-hidden { bottom: 10px; }
+          .hr-cue-form { width: 160px; }
         }
-
-        /* Extra-small (≤360px) */
         @media (max-width: 360px) {
           .hr-title { font-size: clamp(16px, 7.5vw, 28px); }
           .hr-meta-row { gap: 5px; }
-          /* Hide skip-10 labels by shrinking SVG text */
           .hr-skip-label { display: none; }
         }
       `}</style>
 
       <div
         ref={containerRef}
-        className="hr-player"
+        className={`hr-player${isFullscreen ? ' hr-fullscreen' : ''}`}
         onClick={togglePlay}
         onMouseMove={showControls}
         onTouchStart={showControls}
@@ -428,14 +835,14 @@ export default function VideoPlayer({
             ref={videoRef}
             src={src}
             poster={poster}
-            playsInline          // prevents iOS from forcing its own fullscreen
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+            playsInline
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
           />
         ) : (
           <div className="hr-poster" />
         )}
 
-        {/* Back button */}
+        {/* ── Back button ─────────────────────────────────────────────────── */}
         <button
           className="hr-back"
           onClick={e => { e.stopPropagation(); onBack?.() }}
@@ -446,7 +853,14 @@ export default function VideoPlayer({
           </svg>
         </button>
 
-        {/* Center flash */}
+        {/* ── Active subtitle display ──────────────────────────────────────── */}
+        {activeCue && subsEnabled && !adminOpen && (
+          <div className={`hr-subs${(!controlsVisible && isPlaying) ? ' controls-hidden' : ''}`}>
+            <span key={activeCue.id} className="hr-subs-text hr-subs-fade">{activeCue.text}</span>
+          </div>
+        )}
+
+        {/* ── Center flash ─────────────────────────────────────────────────── */}
         <div className={`hr-flash${flashState ? ' show' : ''}`}>
           <div className="hr-flash-ring">
             {flashState === 'play' ? (
@@ -459,7 +873,7 @@ export default function VideoPlayer({
           </div>
         </div>
 
-        {/* Overlay with title + synopsis */}
+        {/* ── Title / synopsis overlay ─────────────────────────────────────── */}
         <div className={`hr-overlay${!isPlaying ? ' paused' : ' hidden'}`}>
           <div className="hr-meta" onClick={e => e.stopPropagation()}>
             <span className="hr-subtitle">{subtitle}</span>
@@ -471,7 +885,7 @@ export default function VideoPlayer({
             <div className="hr-meta-row">
               <span>{year}</span>
               <span className="hr-dot" />
-              <span>{duration}</span>
+              <span>{displayTotal}</span>
               <span className="hr-dot" />
               <span className="hr-rating">
                 <span className="hr-star">★</span> {rating}
@@ -496,12 +910,12 @@ export default function VideoPlayer({
           </div>
         </div>
 
-        {/* Controls */}
+        {/* ── Controls bar ─────────────────────────────────────────────────── */}
         <div
           className={`hr-controls${(!controlsVisible && isPlaying) ? ' hidden' : ''}`}
           onClick={e => e.stopPropagation()}
         >
-          {/* Progress bar — supports mouse & touch */}
+          {/* Progress bar with cue tick marks */}
           <div
             ref={progressRef}
             className="hr-prog-wrap"
@@ -511,13 +925,21 @@ export default function VideoPlayer({
           >
             <div className="hr-prog-track">
               <div className="hr-prog-fill" style={{ width: pct }} />
+              {/* FIX 4: Render a tick mark for every subtitle cue on the timeline */}
+              {totalTime > 0 && sortedCues.map(c => (
+                <div
+                  key={c.id}
+                  className="hr-prog-tick"
+                  style={{ left: `${(c.start / totalTime) * 100}%` }}
+                  title={`${fmt(c.start)}: ${c.text.slice(0, 40)}`}
+                />
+              ))}
             </div>
             <div className="hr-prog-thumb" style={{ left: pct }} />
           </div>
 
           <div className="hr-btn-row">
-
-            {/* Rewind 10s */}
+            {/* Rewind */}
             <button className="hr-btn" onClick={() => skip(-10)} title="Rewind 10s">
               <svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -526,7 +948,7 @@ export default function VideoPlayer({
               </svg>
             </button>
 
-            {/* Play / Pause */}
+            {/* Play/Pause */}
             <button className="hr-btn" onClick={togglePlay} title="Play/Pause">
               {isPlaying ? (
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -539,7 +961,7 @@ export default function VideoPlayer({
               )}
             </button>
 
-            {/* Forward 10s */}
+            {/* Forward */}
             <button className="hr-btn" onClick={() => skip(10)} title="Forward 10s">
               <svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
@@ -554,6 +976,30 @@ export default function VideoPlayer({
             </div>
 
             <div className="hr-spacer" />
+
+            {/* Subtitles toggle (CC) */}
+            <button
+              className={`hr-btn${subsEnabled ? ' active' : ''}`}
+              onClick={() => setSubsEnabled(s => !s)}
+              title={subsEnabled ? 'Hide subtitles (C)' : 'Show subtitles (C)'}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="5" width="20" height="14" rx="2" />
+                <path d="M7 12h4M13 12h4M7 16h3M14 16h3" />
+              </svg>
+            </button>
+
+            {/* Admin subtitle editor */}
+            <button
+              className={`hr-btn${adminOpen ? ' active' : ''}`}
+              onClick={e => { e.stopPropagation(); setAdminOpen(o => !o); if (!adminOpen) openNewCueForm() }}
+              title="Subtitle editor"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
 
             {/* Volume */}
             <div className="hr-vol-wrap" onClick={e => e.stopPropagation()}>
@@ -578,7 +1024,6 @@ export default function VideoPlayer({
               />
             </div>
 
-            {/* Delete — only rendered when onDelete is provided */}
             {onDelete && (
               <button
                 className="hr-btn hr-btn-danger"
@@ -606,9 +1051,159 @@ export default function VideoPlayer({
                 </svg>
               )}
             </button>
-
           </div>
         </div>
+
+        {/* ── Admin subtitle panel ──────────────────────────────────────────── */}
+        {adminOpen && (
+          <div className="hr-admin-panel" onClick={e => e.stopPropagation()}>
+            <div className="hr-admin-header">
+              <h2>Subtitle Editor</h2>
+              <div className="hr-admin-actions">
+                <label className="hr-import-label" title="Import .vtt or .srt file">
+                  Import VTT / SRT
+                  <input
+                    type="file"
+                    className="hr-import-input"
+                    accept=".vtt,.srt,text/vtt,text/plain"
+                    onChange={handleFileImport}
+                  />
+                </label>
+                {cues.length > 0 && (
+                  <button className="hr-btn-ghost" onClick={exportVTT}>Export VTT</button>
+                )}
+                <button className="hr-btn-ghost" onClick={() => setAdminOpen(false)}>✕ Close</button>
+              </div>
+            </div>
+
+            <div className="hr-admin-body">
+              {/* Cue list */}
+              <div className="hr-cue-list">
+                {sortedCues.length === 0 ? (
+                  <p className="hr-no-cues">No subtitle cues yet.<br />Add one using the form →</p>
+                ) : sortedCues.map(c => (
+                  <div
+                    key={c.id}
+                    className={`hr-cue-item${c.id === activeCue?.id ? ' active-cue' : ''}${editingCue?.id === c.id ? ' editing' : ''}`}
+                    onClick={() => {
+                      // Seek to cue start on click
+                      const v = videoRef.current
+                      if (v) v.currentTime = c.start
+                      setCurrentTime(c.start)
+                      setProgress(totalTime ? c.start / totalTime : 0)
+                    }}
+                  >
+                    <div style={{ display:'flex', flexDirection:'column', gap:2, flex:1, minWidth:0 }}>
+                      <div className="hr-cue-times">{fmt(c.start)} → {fmt(c.end)}</div>
+                      <div className="hr-cue-text">{c.text}</div>
+                    </div>
+                    <button
+                      className="hr-cue-edit"
+                      onClick={e => { e.stopPropagation(); openEditCueForm(c) }}
+                      title="Edit cue"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    <button
+                      className="hr-cue-del"
+                      onClick={e => { e.stopPropagation(); deleteCue(c.id) }}
+                      title="Delete cue"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add / edit form */}
+              <div className="hr-cue-form">
+                <h3>{editingCue ? 'Edit Cue' : 'New Cue'}</h3>
+
+                <div className="hr-field">
+                  <label>Start time</label>
+                  <input
+                    value={formStart}
+                    onChange={e => setFormStart(e.target.value)}
+                    placeholder="0:00 or 1:23:45"
+                  />
+                </div>
+                <div className="hr-field">
+                  <label>End time</label>
+                  <input
+                    value={formEnd}
+                    onChange={e => setFormEnd(e.target.value)}
+                    placeholder="0:00 or 1:23:45"
+                  />
+                </div>
+                <div className="hr-field">
+                  <label>Text</label>
+                  <textarea
+                    value={formText}
+                    onChange={e => setFormText(e.target.value)}
+                    placeholder="Subtitle text…"
+                  />
+                </div>
+
+                {formError && <p className="hr-form-error">{formError}</p>}
+                <p className="hr-form-hint">
+                  Current time: <strong style={{color:'#c9a84c'}}>{fmt(currentTime)}</strong>
+                  {' '}— use ← → to scrub
+                </p>
+
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                  <button
+                    className="hr-btn-gold"
+                    onClick={saveCue}
+                  >
+                    {editingCue ? 'Save' : 'Add Cue'}
+                  </button>
+                  {editingCue && (
+                    <button
+                      className="hr-btn-ghost"
+                      onClick={() => { setEditingCue(null); openNewCueForm() }}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+
+                {!editingCue && (
+                  <button
+                    className="hr-btn-ghost"
+                    style={{ marginTop:4 }}
+                    onClick={() => {
+                      setFormStart(fmt(currentTime))
+                      setFormEnd(fmt(Math.min(currentTime + 2, totalTime || currentTime + 2)))
+                    }}
+                    title="Snap start to current playback position"
+                  >
+                    ⌖ Snap to current time
+                  </button>
+                )}
+
+                <div style={{ marginTop:8, borderTop:'1px solid rgba(201,168,76,0.1)', paddingTop:10 }}>
+                  <p className="hr-form-hint" style={{marginBottom:6}}>
+                    {cues.length} cue{cues.length !== 1 ? 's' : ''}
+                  </p>
+                  {cues.length > 0 && (
+                    <button
+                      className="hr-btn-ghost"
+                      style={{ color:'rgba(231,76,60,0.6)', borderColor:'rgba(231,76,60,0.2)', fontSize:10 }}
+                      onClick={() => { if (confirm('Clear all subtitle cues?')) setCues([]) }}
+                    >
+                      Clear all cues
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   )

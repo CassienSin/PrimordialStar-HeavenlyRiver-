@@ -18,7 +18,7 @@ const getName = (profile: any) => profile?.nickname || profile?.username || 'Use
 const getAvatarSrc = (url: string) => {
   if (!url) return ''
   if (url.startsWith('http')) return url
-  return `${process.env.NEXT_PUBLIC_MINIO_PUBLIC_URL}/heavenlyriver/${url}`
+  return getStorageUrl(url)   
 }
 
 const formatTime = (date: string) =>
@@ -29,13 +29,11 @@ const formatTime = (date: string) =>
 function useToasts() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const counter = useRef(0)
-
   const push = useCallback((text: string, kind: Toast['kind'] = 'info') => {
     const id = ++counter.current
     setToasts(prev => [...prev, { id, text, kind }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
   }, [])
-
   return { toasts, push }
 }
 
@@ -45,16 +43,18 @@ function Avatar({ profile, size = 32 }: { profile: any; size?: number }) {
   const src = getAvatarSrc(profile?.avatar_url)
   const initial = getName(profile).charAt(0).toUpperCase()
   return (
-    <div
-      style={{
-        width: size, height: size, borderRadius: 5, flexShrink: 0, overflow: 'hidden',
-        background: 'linear-gradient(135deg, #c0392b, #7b1a1a)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#f0c96a', fontWeight: 700, fontSize: size * 0.4,
-        fontFamily: "'Cinzel', serif",
-      }}
-    >
-      {src ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initial}
+    <div style={{
+      width: size, height: size, borderRadius: 5, flexShrink: 0, overflow: 'hidden',
+      background: 'linear-gradient(135deg, #c0392b, #7b1a1a)',
+      border: '1px solid rgba(201,168,76,0.2)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: '#f0c96a', fontWeight: 700, fontSize: size * 0.4,
+      fontFamily: "'Cinzel', serif",
+    }}>
+      {src
+        ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : initial
+      }
     </div>
   )
 }
@@ -62,46 +62,50 @@ function Avatar({ profile, size = 32 }: { profile: any; size?: number }) {
 // ─── Sync badge ───────────────────────────────────────────────────────────────
 
 function SyncBadge({ status }: { status: SyncStatus }) {
-  const map: Record<SyncStatus, { label: string; color: string; dot: string }> = {
-    live:    { label: 'LIVE',    color: '#e74c3c', dot: '#e74c3c' },
-    synced:  { label: 'SYNCED', color: '#2ecc71', dot: '#2ecc71' },
-    syncing: { label: 'SYNCING', color: '#f39c12', dot: '#f39c12' },
+  const map: Record<SyncStatus, { label: string; color: string }> = {
+    live:    { label: 'LIVE',    color: '#e74c3c' },
+    synced:  { label: 'SYNCED', color: '#2ecc71' },
+    syncing: { label: 'SYNCING', color: '#c9a84c' },
   }
   const s = map[status]
   return (
     <div style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
       padding: '3px 10px', borderRadius: 20,
-      background: `${s.color}18`, border: `1px solid ${s.color}44`,
+      background: `${s.color}18`,
+      border: `1px solid ${s.color}44`,
       fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
       color: s.color, fontFamily: "'Cinzel', serif",
     }}>
       <span style={{
-        width: 6, height: 6, borderRadius: '50%', background: s.dot,
-        animation: status === 'live' ? 'pulse 1.4s ease-in-out infinite' : 'none',
+        width: 6, height: 6, borderRadius: '50%', background: s.color,
+        animation: status === 'live' ? 'hr-pulse 1.4s ease-in-out infinite' : 'none',
       }} />
       {s.label}
     </div>
   )
 }
 
-// ─── Loading skeleton ─────────────────────────────────────────────────────────
+// ─── Loading ──────────────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
     <div style={{
-      minHeight: '100vh', background: '#0a0812', display: 'flex',
-      alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16,
+      minHeight: '100vh', background: '#0a0812',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexDirection: 'column', gap: 20,
       color: '#f0e6d3', fontFamily: "'Nunito', sans-serif",
     }}>
-      <style>{`@keyframes shimmer { 0%{opacity:.3} 50%{opacity:.7} 100%{opacity:.3} }`}</style>
-      <div style={{ fontSize: 44 }}>🎬</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
-        {[180, 120, 150].map((w, i) => (
+      <div style={{ fontSize: 52 }}>🎉</div>
+      <div style={{ fontFamily: "'Cinzel', serif", fontSize: 16, letterSpacing: 2, color: 'rgba(201,168,76,0.6)' }}>
+        Loading party...
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {[0,1,2].map(i => (
           <div key={i} style={{
-            width: w, height: 12, borderRadius: 6,
-            background: 'rgba(201,168,76,0.15)',
-            animation: `shimmer 1.6s ease-in-out ${i * 0.2}s infinite`,
+            width: 8, height: 8, borderRadius: '50%',
+            background: '#c9a84c', opacity: 0.3,
+            animation: `hr-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
           }} />
         ))}
       </div>
@@ -115,9 +119,7 @@ function VideoSelectModal({ videos, onSelect, onClose }: {
   videos: any[]; onSelect: (v: any) => void; onClose: () => void
 }) {
   const [query, setQuery] = useState('')
-  const filtered = videos.filter(v =>
-    v.title?.toLowerCase().includes(query.toLowerCase())
-  )
+  const filtered = videos.filter(v => v.title?.toLowerCase().includes(query.toLowerCase()))
 
   return (
     <div
@@ -129,20 +131,30 @@ function VideoSelectModal({ videos, onSelect, onClose }: {
     >
       <div
         style={{
-          background: '#16121f', border: '1px solid rgba(201,168,76,0.15)',
-          borderRadius: 12, padding: 28, maxWidth: 720, width: '100%',
-          maxHeight: '82vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-          position: 'relative',
+          background: '#16121f',
+          border: '1px solid rgba(201,168,76,0.18)',
+          borderRadius: 12, padding: 28,
+          maxWidth: 720, width: '100%', maxHeight: '82vh',
+          overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 32px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(201,168,76,0.06)',
         }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ fontFamily: "'Cinzel', serif", fontSize: 19, color: '#f0e6d3', margin: 0, letterSpacing: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{
+            fontFamily: "'Cinzel', serif", fontSize: 20,
+            color: '#f0e6d3', margin: 0, letterSpacing: 1.5,
+          }}>
             🎬 Select a Video
           </h2>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', color: 'rgba(240,230,211,0.4)', fontSize: 18, cursor: 'pointer', padding: '4px 8px' }}
+            style={{
+              background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.15)',
+              color: 'rgba(240,230,211,0.5)', fontSize: 16, cursor: 'pointer',
+              width: 32, height: 32, borderRadius: 6, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}
           >✕</button>
         </div>
 
@@ -151,22 +163,25 @@ function VideoSelectModal({ videos, onSelect, onClose }: {
           value={query}
           onChange={e => setQuery(e.target.value)}
           style={{
-            padding: '10px 14px', background: '#0f0c18', border: '1px solid rgba(201,168,76,0.15)',
-            borderRadius: 7, color: '#f0e6d3', fontSize: 13, fontFamily: "'Nunito', sans-serif",
-            outline: 'none', marginBottom: 18, flexShrink: 0,
+            padding: '10px 14px',
+            background: '#0f0c18',
+            border: '1px solid rgba(201,168,76,0.15)',
+            borderRadius: 7, color: '#f0e6d3', fontSize: 13,
+            fontFamily: "'Nunito', sans-serif", outline: 'none',
+            marginBottom: 18, flexShrink: 0,
           }}
           autoFocus
         />
 
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {filtered.length === 0 ? (
-            <p style={{ color: 'rgba(240,230,211,0.3)', textAlign: 'center', marginTop: 40, fontSize: 13 }}>
+            <p style={{ color: 'rgba(240,230,211,0.25)', textAlign: 'center', marginTop: 40, fontSize: 13 }}>
               No videos found
             </p>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12 }}>
               {filtered.map(v => (
-                <VideoCard key={v.id} video={v} onClick={() => onSelect(v)} />
+                <VideoSelectCard key={v.id} video={v} onClick={() => onSelect(v)} />
               ))}
             </div>
           )}
@@ -176,7 +191,7 @@ function VideoSelectModal({ videos, onSelect, onClose }: {
   )
 }
 
-function VideoCard({ video, onClick }: { video: any; onClick: () => void }) {
+function VideoSelectCard({ video, onClick }: { video: any; onClick: () => void }) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -184,23 +199,31 @@ function VideoCard({ video, onClick }: { video: any; onClick: () => void }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: '#0f0c18', border: `1px solid ${hovered ? 'rgba(201,168,76,0.35)' : 'rgba(201,168,76,0.08)'}`,
+        background: '#0f0c18',
+        border: `1px solid ${hovered ? 'rgba(201,168,76,0.4)' : 'rgba(201,168,76,0.08)'}`,
         borderRadius: 7, overflow: 'hidden', cursor: 'pointer',
-        transform: hovered ? 'scale(1.03)' : 'scale(1)',
+        transform: hovered ? 'scale(1.04)' : 'scale(1)',
+        boxShadow: hovered ? '0 8px 24px rgba(0,0,0,0.6)' : 'none',
         transition: 'all 0.18s ease',
       }}
     >
-      <div style={{ width: '100%', aspectRatio: '16/9', background: '#1e1828', overflow: 'hidden' }}>
-        {video.thumbnail_url
-          ? <img src={getStorageUrl(video.thumbnail_url)} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, opacity: 0.3 }}>🎬</div>
-        }
+      <div style={{ width: '100%', aspectRatio: '16/9', background: '#1e1828', overflow: 'hidden', position: 'relative' }}>
+        {video.thumbnail_url ? (
+          <>
+            <img src={getStorageUrl(video.thumbnail_url)} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(10,8,18,0.7), transparent)' }} />
+          </>
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, opacity: 0.25 }}>🎬</div>
+        )}
       </div>
-      <div style={{
-        padding: '8px 10px', fontSize: 12, color: '#f0e6d3', fontWeight: 600,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
-        {video.title}
+      <div style={{ padding: '8px 10px 10px' }}>
+        <div style={{ fontSize: 12, color: '#f0e6d3', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'Nunito', sans-serif" }}>
+          {video.title}
+        </div>
+        <div style={{ fontSize: 9, color: '#c9a84c', fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', fontFamily: "'Cinzel', serif", marginTop: 3 }}>
+          {video.category}
+        </div>
       </div>
     </div>
   )
@@ -208,8 +231,16 @@ function VideoCard({ video, onClick }: { video: any; onClick: () => void }) {
 
 // ─── Chat panel ───────────────────────────────────────────────────────────────
 
-function ChatPanel({ messages, user, message, setMessage, onSend, chatRef }: any) {
-  // Group consecutive messages from the same user
+function ChatPanel({ messages, user, message, setMessage, onSend, chatRef, isVisible }: any) { 
+
+   useEffect(() => {
+    if (!isVisible) return
+    const el = chatRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (nearBottom) el.scrollTop = el.scrollHeight
+  }, [messages, isVisible])
+
   const grouped = messages.reduce((acc: any[], msg: any, i: number) => {
     const prev = messages[i - 1]
     const isSame = prev && prev.user_id === msg.user_id &&
@@ -223,16 +254,16 @@ function ChatPanel({ messages, user, message, setMessage, onSend, chatRef }: any
       <div
         ref={chatRef}
         style={{
-          flex: 1, overflowY: 'auto', padding: '16px 14px',
+          flex: 1, overflowY: 'auto', padding: '14px 12px',
           display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0,
         }}
       >
         {grouped.length === 0 && (
           <div style={{
             textAlign: 'center', color: 'rgba(240,230,211,0.2)',
-            fontSize: 13, marginTop: 48, lineHeight: 1.8,
+            fontSize: 13, marginTop: 48, lineHeight: 1.9,
           }}>
-            <div style={{ fontSize: 28, marginBottom: 10 }}>👋</div>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>👋</div>
             No messages yet — say hi!
           </div>
         )}
@@ -246,31 +277,31 @@ function ChatPanel({ messages, user, message, setMessage, onSend, chatRef }: any
                 display: 'flex', gap: 8,
                 flexDirection: isOwn ? 'row-reverse' : 'row',
                 alignItems: 'flex-end',
-                marginTop: msg.grouped ? 2 : 10,
+                marginTop: msg.grouped ? 2 : 12,
               }}
             >
-              {/* Avatar — hidden for grouped messages to reduce noise */}
-              <div style={{ width: 28, flexShrink: 0, alignSelf: 'flex-end' }}>
+              <div style={{ width: 28, flexShrink: 0 }}>
                 {!msg.grouped && <Avatar profile={msg.profiles} size={28} />}
               </div>
-
               <div style={{ maxWidth: '72%' }}>
                 {!msg.grouped && !isOwn && (
-                  <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 700, marginBottom: 3, letterSpacing: 0.4 }}>
+                  <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 700, marginBottom: 3, letterSpacing: 0.5, fontFamily: "'Cinzel', serif" }}>
                     {getName(msg.profiles)}
                   </div>
                 )}
                 <div style={{
-                  padding: '8px 12px',
-                  background: isOwn ? 'rgba(192,57,43,0.18)' : '#1e1828',
-                  border: `1px solid ${isOwn ? 'rgba(192,57,43,0.25)' : 'rgba(201,168,76,0.08)'}`,
-                  borderRadius: isOwn ? '10px 3px 10px 10px' : '3px 10px 10px 10px',
-                  fontSize: 14, color: '#f0e6d3', lineHeight: 1.45, wordBreak: 'break-word',
+                  padding: '8px 13px',
+                  background: isOwn
+                    ? 'linear-gradient(135deg, rgba(192,57,43,0.22), rgba(123,26,26,0.18))'
+                    : 'rgba(30,24,40,0.9)',
+                  border: `1px solid ${isOwn ? 'rgba(192,57,43,0.28)' : 'rgba(201,168,76,0.1)'}`,
+                  borderRadius: isOwn ? '12px 3px 12px 12px' : '3px 12px 12px 12px',
+                  fontSize: 14, color: '#f0e6d3', lineHeight: 1.5, wordBreak: 'break-word',
                 }}>
                   {msg.message}
                 </div>
                 <div style={{
-                  fontSize: 10, color: 'rgba(240,230,211,0.2)', marginTop: 3,
+                  fontSize: 10, color: 'rgba(240,230,211,0.18)', marginTop: 3,
                   textAlign: isOwn ? 'right' : 'left',
                 }}>
                   {formatTime(msg.created_at)}
@@ -281,38 +312,41 @@ function ChatPanel({ messages, user, message, setMessage, onSend, chatRef }: any
         })}
       </div>
 
+      {/* Input */}
       <div style={{
-        padding: '10px 12px', borderTop: '1px solid rgba(201,168,76,0.1)',
+        padding: '10px 12px',
+        borderTop: '1px solid rgba(201,168,76,0.1)',
         display: 'flex', gap: 8, flexShrink: 0,
+        background: 'rgba(15,12,24,0.8)',
       }}>
         <input
           style={{
-            flex: 1, padding: '9px 13px',
-            background: '#16121f', border: '1px solid rgba(201,168,76,0.12)',
-            borderRadius: 7, color: '#f0e6d3', fontSize: 14,
+            flex: 1, padding: '10px 14px',
+            background: '#16121f',
+            border: '1px solid rgba(201,168,76,0.12)',
+            borderRadius: 8, color: '#f0e6d3', fontSize: 14,
             fontFamily: "'Nunito', sans-serif", outline: 'none',
+            transition: 'border-color 0.2s',
           }}
           placeholder="Say something..."
           value={message}
           onChange={e => setMessage(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && onSend()}
-          onFocus={e => (e.target.style.borderColor = 'rgba(201,168,76,0.35)')}
+          onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && onSend()}
+          onFocus={e => (e.target.style.borderColor = 'rgba(201,168,76,0.4)')}
           onBlur={e => (e.target.style.borderColor = 'rgba(201,168,76,0.12)')}
         />
         <button
           onClick={onSend}
           style={{
-            padding: '9px 14px',
+            padding: '10px 14px',
             background: 'linear-gradient(135deg, #c0392b, #7b1a1a)',
-            color: '#f0c96a', border: 'none', borderRadius: 7,
-            fontSize: 14, cursor: 'pointer', transition: 'opacity 0.15s',
-            flexShrink: 0,
+            color: '#f0c96a', border: '1px solid rgba(201,168,76,0.25)',
+            borderRadius: 8, fontSize: 15, cursor: 'pointer',
+            transition: 'all 0.15s', flexShrink: 0,
           }}
-          onMouseEnter={e => ((e.target as HTMLElement).style.opacity = '0.85')}
-          onMouseLeave={e => ((e.target as HTMLElement).style.opacity = '1')}
-        >
-          ➤
-        </button>
+          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)')}
+          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #c0392b, #7b1a1a)')}
+        >➤</button>
       </div>
     </>
   )
@@ -320,28 +354,38 @@ function ChatPanel({ messages, user, message, setMessage, onSend, chatRef }: any
 
 // ─── Members panel ────────────────────────────────────────────────────────────
 
-function MembersPanel({ members, hostId }: any) {
+function MembersPanel({ members, hostId, onlineUserIds }: any) {
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
       {members.map((m: any) => (
         <div
           key={m.id}
           style={{
-            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
-            background: '#16121f', borderRadius: 8, border: '1px solid rgba(201,168,76,0.07)',
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '10px 14px', background: '#16121f',
+            borderRadius: 8, border: '1px solid rgba(201,168,76,0.08)',
           }}
         >
           <Avatar profile={m.profiles} size={36} />
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, color: '#f0e6d3', fontWeight: 600 }}>{getName(m.profiles)}</div>
             {m.user_id === hostId && (
-              <div style={{ fontSize: 10, color: '#c9a84c', letterSpacing: 1, textTransform: 'uppercase', fontFamily: "'Cinzel', serif" }}>
+              <div style={{ fontSize: 10, color: '#c9a84c', letterSpacing: 1.2, textTransform: 'uppercase', fontFamily: "'Cinzel', serif", marginTop: 2 }}>
                 👑 Host
               </div>
             )}
           </div>
-          {/* Online dot */}
-          <div style={{ marginLeft: 'auto', width: 8, height: 8, borderRadius: '50%', background: '#2ecc71', flexShrink: 0 }} />
+          {/* Online indicator */}
+          {(() => {
+            const isOnline = onlineUserIds?.has(m.user_id)
+            return (
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                background: isOnline ? '#2ecc71' : 'rgba(240,230,211,0.15)',
+                boxShadow: isOnline ? '0 0 6px rgba(46,204,113,0.6)' : 'none',
+              }} />
+            )
+          })()}
         </div>
       ))}
     </div>
@@ -352,65 +396,93 @@ function MembersPanel({ members, hostId }: any) {
 
 function InvitePanel({ inviteCode, onCopy, copied, usernameInput, setUsernameInput, onAddUser }: any) {
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20, minHeight: 0 }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 22, minHeight: 0 }}>
+      {/* Code section */}
       <div>
-        <p style={{ fontSize: 11, color: 'rgba(240,230,211,0.4)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10, fontFamily: "'Cinzel', serif" }}>
+        <p style={{
+          fontSize: 11, color: 'rgba(201,168,76,0.5)',
+          letterSpacing: 2, textTransform: 'uppercase',
+          marginBottom: 10, fontFamily: "'Cinzel', serif",
+        }}>
           Invite Code
         </p>
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px',
-          background: '#16121f', border: '1px solid rgba(201,168,76,0.18)', borderRadius: 8,
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '14px 16px', background: '#16121f',
+          border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8,
+          boxShadow: 'inset 0 1px 0 rgba(201,168,76,0.05)',
         }}>
           <span style={{
-            flex: 1, fontFamily: "'Courier New', monospace", fontSize: 20,
-            color: '#c9a84c', letterSpacing: 4, fontWeight: 700,
+            flex: 1, fontFamily: "'Courier New', monospace",
+            fontSize: 22, color: '#c9a84c', letterSpacing: 5, fontWeight: 700,
           }}>
             {inviteCode}
           </span>
           <button
             onClick={onCopy}
             style={{
-              padding: '6px 12px', background: copied ? 'rgba(46,204,113,0.15)' : 'rgba(201,168,76,0.1)',
+              padding: '7px 14px',
+              background: copied
+                ? 'rgba(46,204,113,0.12)'
+                : 'rgba(201,168,76,0.1)',
               border: `1px solid ${copied ? 'rgba(46,204,113,0.3)' : 'rgba(201,168,76,0.2)'}`,
-              borderRadius: 6, color: copied ? '#2ecc71' : '#c9a84c',
+              borderRadius: 6,
+              color: copied ? '#2ecc71' : '#c9a84c',
               fontSize: 12, cursor: 'pointer', transition: 'all 0.2s',
               fontWeight: 700, letterSpacing: 0.5,
+              fontFamily: "'Nunito', sans-serif",
             }}
           >
-            {copied ? '✓ Copied' : 'Copy'}
+            {copied ? '✓ Copied' : '📋 Copy'}
           </button>
         </div>
-        <p style={{ fontSize: 12, color: 'rgba(240,230,211,0.22)', marginTop: 8 }}>
-          Share this code for others to join
+        <p style={{ fontSize: 12, color: 'rgba(240,230,211,0.2)', marginTop: 8, lineHeight: 1.5 }}>
+          Share this code with friends to join the party
         </p>
       </div>
 
+      {/* Divider */}
+      <div style={{ height: 1, background: 'linear-gradient(to right, rgba(201,168,76,0.15), transparent)' }} />
+
+      {/* Username section */}
       <div>
-        <p style={{ fontSize: 11, color: 'rgba(240,230,211,0.4)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10, fontFamily: "'Cinzel', serif" }}>
-          Add by Username
+        <p style={{
+          fontSize: 11, color: 'rgba(201,168,76,0.5)',
+          letterSpacing: 2, textTransform: 'uppercase',
+          marginBottom: 10, fontFamily: "'Cinzel', serif",
+        }}>
+          Invite by Username
         </p>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             style={{
-              flex: 1, padding: '10px 12px', background: '#16121f',
-              border: '1px solid rgba(201,168,76,0.12)', borderRadius: 7,
-              color: '#f0e6d3', fontSize: 13, fontFamily: "'Nunito', sans-serif", outline: 'none',
+              flex: 1, padding: '10px 13px',
+              background: '#16121f',
+              border: '1px solid rgba(201,168,76,0.12)',
+              borderRadius: 7, color: '#f0e6d3', fontSize: 13,
+              fontFamily: "'Nunito', sans-serif", outline: 'none',
+              transition: 'border-color 0.2s',
             }}
             placeholder="Username or nickname..."
             value={usernameInput}
             onChange={e => setUsernameInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && onAddUser()}
+            onFocus={e => (e.target.style.borderColor = 'rgba(201,168,76,0.4)')}
+            onBlur={e => (e.target.style.borderColor = 'rgba(201,168,76,0.12)')}
           />
           <button
             onClick={onAddUser}
             style={{
-              padding: '10px 16px', background: 'linear-gradient(135deg,#c0392b,#7b1a1a)',
-              color: '#f0c96a', border: 'none', borderRadius: 7,
-              fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              padding: '10px 16px',
+              background: 'linear-gradient(135deg, #c0392b, #7b1a1a)',
+              color: '#f0c96a', border: '1px solid rgba(201,168,76,0.25)',
+              borderRadius: 7, fontSize: 13, fontWeight: 700,
+              cursor: 'pointer', fontFamily: "'Cinzel', serif",
+              letterSpacing: 0.5, transition: 'all 0.15s',
             }}
-          >
-            Add
-          </button>
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)')}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #c0392b, #7b1a1a)')}
+          >Add</button>
         </div>
       </div>
     </div>
@@ -421,29 +493,34 @@ function InvitePanel({ inviteCode, onCopy, copied, usernameInput, setUsernameInp
 
 function PartyRightPanel(props: any) {
   const [tab, setTab] = useState<'chat' | 'members' | 'invite'>('chat')
-  const { messages, members, user, message, setMessage, handleSendMessage, chatRef,
-    inviteCode, inviteUserInput, setInviteUserInput, handleInviteByUsername,
-    handleCopyInvite, inviteCopied, isHost, hostId } = props
+  const { messages, members, user, message, setMessage, handleSendMessage,
+    chatRef, inviteCode, inviteUserInput, setInviteUserInput,
+    handleInviteByUsername, handleCopyInvite, inviteCopied, hostId, onlineUserIds } = props
 
-  const TABS: { id: 'chat' | 'members' | 'invite'; label: string }[] = [
-    { id: 'chat', label: `💬 Chat` },
-    { id: 'members', label: `👥 ${members.length}` },
-    { id: 'invite', label: '＋ Invite' },
+  const TABS = [
+    { id: 'chat' as const,    label: '💬 Chat' },
+    { id: 'members' as const, label: `👥 ${members.length}` },
+    { id: 'invite' as const,  label: '＋ Invite' },
   ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid rgba(201,168,76,0.1)', flexShrink: 0 }}>
+      {/* Tab bar */}
+      <div style={{
+        display: 'flex',
+        borderBottom: '1px solid rgba(201,168,76,0.1)',
+        flexShrink: 0, background: 'rgba(10,8,18,0.5)',
+      }}>
         {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
             style={{
-              flex: 1, padding: '13px 8px', textAlign: 'center', fontSize: 11,
-              fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
-              cursor: 'pointer', background: 'none', border: 'none', borderBottom: `2px solid ${tab === t.id ? '#c9a84c' : 'transparent'}`,
-              color: tab === t.id ? '#c9a84c' : 'rgba(240,230,211,0.4)',
+              flex: 1, padding: '13px 8px', textAlign: 'center',
+              fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+              cursor: 'pointer', background: 'none', border: 'none',
+              borderBottom: `2px solid ${tab === t.id ? '#c9a84c' : 'transparent'}`,
+              color: tab === t.id ? '#c9a84c' : 'rgba(240,230,211,0.35)',
               fontFamily: "'Nunito', sans-serif", transition: 'all 0.18s',
             }}
           >
@@ -455,14 +532,18 @@ function PartyRightPanel(props: any) {
       {tab === 'chat' && (
         <ChatPanel
           messages={messages} user={user} message={message}
-          setMessage={setMessage} onSend={handleSendMessage} chatRef={chatRef}
+          setMessage={setMessage} onSend={handleSendMessage} 
+          chatRef={chatRef} isVisible={tab === 'chat'}
         />
       )}
-      {tab === 'members' && <MembersPanel members={members} hostId={hostId} />}
+      {tab === 'members' && <MembersPanel members={members} hostId={hostId} onlineUserIds={onlineUserIds} />}
       {tab === 'invite' && (
         <InvitePanel
-          inviteCode={inviteCode} onCopy={handleCopyInvite} copied={inviteCopied}
-          usernameInput={inviteUserInput} setUsernameInput={setInviteUserInput}
+          inviteCode={inviteCode}
+          onCopy={handleCopyInvite}
+          copied={inviteCopied}
+          usernameInput={inviteUserInput}       
+          setUsernameInput={setInviteUserInput}  
           onAddUser={handleInviteByUsername}
         />
       )}
@@ -477,14 +558,20 @@ function ToastLayer({ toasts }: { toasts: Toast[] }) {
     success: '#2ecc71', error: '#e74c3c', info: '#c9a84c',
   }
   return (
-    <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 500, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+    <div style={{
+      position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 500, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center',
+    }}>
       {toasts.map(t => (
         <div key={t.id} style={{
-          padding: '9px 18px', borderRadius: 20,
-          background: `${colors[t.kind]}18`, border: `1px solid ${colors[t.kind]}55`,
+          padding: '9px 20px', borderRadius: 20,
+          background: `${colors[t.kind]}18`,
+          border: `1px solid ${colors[t.kind]}55`,
           color: colors[t.kind], fontSize: 13, fontWeight: 600,
-          animation: 'fadeUp 0.2s ease', whiteSpace: 'nowrap',
-          backdropFilter: 'blur(10px)',
+          animation: 'hr-fadeUp 0.2s ease', whiteSpace: 'nowrap',
+          backdropFilter: 'blur(12px)',
+          boxShadow: `0 4px 20px ${colors[t.kind]}22`,
+          fontFamily: "'Nunito', sans-serif",
         }}>
           {t.text}
         </div>
@@ -508,20 +595,26 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
   const [inviteCopied, setInviteCopied] = useState(false)
   const [inviteUserInput, setInviteUserInput] = useState('')
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced')
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set())
+  const seekTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const suppressPlaybackEventRef = useRef(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
-  const chatRef = useRef<HTMLDivElement>(null)
-  // Use a ref so the resync interval always sees the current value — fixes the stale closure bug
+  const chatRef  = useRef<HTMLDivElement>(null)
   const isHostRef = useRef(false)
+  const userRef  = useRef<any>(null)
+  const currentVideoIdRef = useRef<string | null>(null)
   const { toasts, push: pushToast } = useToasts()
+  const lastSyncRef = useRef<{ playbackTime: number; syncedAt: number; isPlaying: boolean }>({
+  playbackTime: 0, syncedAt: Date.now(), isPlaying: false,
+  })
 
   const isHost = party?.host_id === user?.id
   isHostRef.current = isHost
 
   useEffect(() => { params.then(p => setPartyId(p.id)) }, [params])
 
-  // ── Load & realtime subscriptions ──────────────────────────────────────────
-
+  // ── Load & realtime ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!partyId) return
 
@@ -529,118 +622,188 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/login'); return }
       setUser(session.user)
+      userRef.current = session.user
 
       await supabase.from('party_members').upsert({ party_id: partyId, user_id: session.user.id })
 
       const { data: partyData } = await supabase
         .from('parties')
         .select('*, videos(id, title, video_url, thumbnail_url)')
-        .eq('id', partyId)
-        .single()
+        .eq('id', partyId).single()
       setParty(partyData)
+      if (partyData) {
+        lastSyncRef.current = {
+          playbackTime: partyData.playback_time || 0,
+          syncedAt: Date.now(),
+          isPlaying: partyData.is_playing || false,
+        }
+        currentVideoIdRef.current = partyData.video_id ?? null
+      }
 
-      const [{ data: membersData }, { data: messagesData }, { data: videosData }] = await Promise.all([
+      const [{ data: md }, { data: ms }, { data: vs }] = await Promise.all([
         supabase.from('party_members').select('*, profiles(id, nickname, username, avatar_url)').eq('party_id', partyId),
         supabase.from('party_messages').select('*, profiles(nickname, username, avatar_url)').eq('party_id', partyId).order('created_at', { ascending: true }).limit(100),
         supabase.from('videos').select('*'),
       ])
-      setMembers(membersData || [])
-      setMessages(messagesData || [])
-      setVideos(videosData || [])
+      setMembers(md || [])
+      setMessages(ms || [])
+      setVideos(vs || [])
+
+      const channel = supabase
+        .channel(`party_${partyId}_room`)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'parties', filter: `id=eq.${partyId}` },
+          async payload => {
+            const newVideoId = payload.new.video_id
+            const prevVideoId = currentVideoIdRef.current
+            lastSyncRef.current = {
+              playbackTime: payload.new.playback_time || 0,
+              syncedAt: Date.now(),
+              isPlaying: payload.new.is_playing || false,
+            }
+            if (newVideoId && newVideoId !== prevVideoId) {
+              currentVideoIdRef.current = newVideoId
+              const { data: vid } = await supabase.from('videos').select('*').eq('id', newVideoId).single()
+              setParty((prev: any) => ({ ...prev, ...payload.new, videos: vid ?? prev?.videos }))
+            } else {
+              setParty((prev: any) => ({ ...prev, ...payload.new, videos: prev?.videos }))
+            }
+          }
+        )
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'party_messages', filter: `party_id=eq.${partyId}` },
+          async payload => {
+            const { data } = await supabase.from('party_messages').select('*, profiles(nickname, username, avatar_url)').eq('id', payload.new.id).single()
+            if (data) setMessages(prev => {
+              if (prev.some(m => m.id === data.id)) return prev
+              return [...prev, data]
+            })
+          }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'party_members', filter: `party_id=eq.${partyId}` },
+          async () => {
+            const { data } = await supabase.from('party_members').select('*, profiles(id, nickname, username, avatar_url)').eq('party_id', partyId)
+            setMembers(data || [])
+          }
+        )
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'parties', filter: `id=eq.${partyId}` },
+          () => {
+            pushToast('The host ended the party', 'info')
+            setTimeout(() => router.push('/party'), 1500)
+          }
+        )
+        .on('presence', { event: 'sync' }, () => {
+          const state = channel.presenceState<{ user_id: string }>()
+          const ids = new Set(Object.values(state).flat().map(p => p.user_id))
+          setOnlineUserIds(ids)
+        })
+
+        const currentUserId = session.user.id  
+
+        channel.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await channel.track({ user_id: currentUserId })  
+          }
+        })
+
+      return channel
     }
-    load()
 
-    const channel = supabase
-      .channel(`party_${partyId}_room`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'parties', filter: `id=eq.${partyId}` },
-        payload => setParty((prev: any) => ({ ...prev, ...payload.new, videos: prev?.videos }))
-      )
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'party_messages', filter: `party_id=eq.${partyId}` },
-        async payload => {
-          const { data } = await supabase.from('party_messages').select('*, profiles(nickname, username, avatar_url)').eq('id', payload.new.id).single()
-          if (data) setMessages(prev => [...prev, data])
-        }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'party_members', filter: `party_id=eq.${partyId}` },
-        async () => {
-          const { data } = await supabase.from('party_members').select('*, profiles(id, nickname, username, avatar_url)').eq('party_id', partyId)
-          setMembers(data || [])
-        }
-      )
-      .subscribe()
+    let channelRef: ReturnType<typeof supabase.channel> | null = null
+    let cancelled = false  
 
-    // Resync non-hosts every 5 s — uses ref to avoid stale closure
+    load().then(ch => {
+      if (cancelled) {
+        if (ch) supabase.removeChannel(ch)
+        return
+      }
+      if (ch) channelRef = ch
+    })
+
     const resyncInterval = setInterval(async () => {
       if (isHostRef.current || !videoRef.current) return
+      const fetchedAt = Date.now()
       const { data: fresh } = await supabase.from('parties').select('is_playing, playback_time').eq('id', partyId).single()
-      if (!fresh || !videoRef.current) return
-      const diff = Math.abs(videoRef.current.currentTime - (fresh.playback_time || 0))
-      if (diff > 3) {
+      if (!videoRef.current) return
+      if (!fresh) {
+        pushToast('The host ended the party', 'info')
+        router.push('/party')
+        return
+      }
+      
+      const expectedTime = fresh.is_playing
+        ? (fresh.playback_time || 0) + (Date.now() - fetchedAt) / 1000
+        : (fresh.playback_time || 0)
+
+      const diff = Math.abs(videoRef.current.currentTime - expectedTime)
+      if (diff > 8) {
         setSyncStatus('syncing')
-        videoRef.current.currentTime = fresh.playback_time || 0
+        videoRef.current.currentTime = expectedTime
         setTimeout(() => setSyncStatus('synced'), 1200)
       }
-      if (fresh.is_playing && videoRef.current.paused) videoRef.current.play().catch(() => {})
+      if (fresh.is_playing && videoRef.current.paused) videoRef.current.play().catch(() => { pushToast('Tap the video to resume playback', 'info') })
       else if (!fresh.is_playing && !videoRef.current.paused) videoRef.current.pause()
     }, 5000)
 
     return () => {
-      supabase.removeChannel(channel)
+      cancelled = true  
+      if (channelRef) supabase.removeChannel(channelRef)
       clearInterval(resyncInterval)
     }
-  }, [partyId, router])
+  }, [partyId, router, pushToast])
 
-  // Scroll chat to bottom when new messages arrive
-  useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-  }, [messages])
 
-  // ── Video sync — single consolidated effect ─────────────────────────────────
-  // Fires when play-state, seek position, or the video itself changes
+  // ── Video sync ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current
     if (!video || !party?.videos) return
-
+    if (!isHost && syncStatus === 'synced') return
     const applySync = () => {
-      const diff = Math.abs(video.currentTime - (party.playback_time || 0))
-      if (diff > 2) video.currentTime = party.playback_time || 0
-      if (party.is_playing) video.play().catch(() => {})
+      const sync = lastSyncRef.current
+      const expectedTime = party.is_playing
+        ? sync.playbackTime + (Date.now() - sync.syncedAt) / 1000
+        : (party.playback_time || 0)
+      const diff = Math.abs(video.currentTime - expectedTime)
+      if (diff > 2) video.currentTime = expectedTime
+      suppressPlaybackEventRef.current = true
+      if (party.is_playing) video.play().catch(() => {
+        pushToast('Tap the video to resume playback', 'info')
+      })
       else video.pause()
+      queueMicrotask(() => { suppressPlaybackEventRef.current = false })
     }
-
-    if (video.readyState >= 1) {
-      applySync()
-    } else {
+    if (video.readyState >= 1) applySync()
+    else {
       video.addEventListener('loadedmetadata', applySync, { once: true })
       return () => video.removeEventListener('loadedmetadata', applySync)
     }
   }, [party?.is_playing, party?.playback_time, party?.video_id, party?.videos])
 
+   useEffect(() => {
+    return () => {
+      if (seekTimeoutRef.current) clearTimeout(seekTimeoutRef.current)
+    }
+  }, [])
+
   // ── Handlers ───────────────────────────────────────────────────────────────
-
-  const handlePlay = async () => {
+  const handlePlay  = async () => { if (!isHost || suppressPlaybackEventRef.current) return; await supabase.from('parties').update({ is_playing: true,  playback_time: videoRef.current?.currentTime || 0 }).eq('id', partyId) }
+  const handlePause = async () => { if (!isHost || suppressPlaybackEventRef.current) return; await supabase.from('parties').update({ is_playing: false, playback_time: videoRef.current?.currentTime || 0 }).eq('id', partyId) }
+  const handleSeeked = () => {
     if (!isHost) return
-    await supabase.from('parties').update({ is_playing: true, playback_time: videoRef.current?.currentTime || 0 }).eq('id', partyId)
-  }
-
-  const handlePause = async () => {
-    if (!isHost) return
-    await supabase.from('parties').update({ is_playing: false, playback_time: videoRef.current?.currentTime || 0 }).eq('id', partyId)
-  }
-
-  const handleSeeked = async () => {
-    if (!isHost) return
-    await supabase.from('parties').update({ playback_time: videoRef.current?.currentTime || 0 }).eq('id', partyId)
+    if (seekTimeoutRef.current) clearTimeout(seekTimeoutRef.current)
+    seekTimeoutRef.current = setTimeout(async () => {
+      await supabase.from('parties').update({ playback_time: videoRef.current?.currentTime || 0 }).eq('id', partyId)
+    }, 250)
   }
 
   const handleSendMessage = async () => {
-    if (!message.trim() || !user) return
-    await supabase.from('party_messages').insert({ party_id: partyId, user_id: user.id, message: message.trim() })
+    const text = message.trim()
+    if (!text || !user) return
     setMessage('')
+    await supabase.from('party_messages').insert({ party_id: partyId, user_id: user.id, message: text })
   }
 
   const handleSelectVideo = async (video: any) => {
     await supabase.from('parties').update({ video_id: video.id, is_playing: false, playback_time: 0 }).eq('id', partyId)
+    currentVideoIdRef.current = video.id
     setParty((prev: any) => ({ ...prev, videos: video, video_id: video.id, is_playing: false, playback_time: 0 }))
     setShowVideoSelect(false)
     pushToast(`Now playing: ${video.title}`, 'success')
@@ -648,11 +811,24 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
 
   const handleLeave = async () => {
     await supabase.from('party_members').delete().eq('party_id', partyId).eq('user_id', user.id)
+
     if (isHost) {
-      const nextHost = members.find((m: any) => m.user_id !== user.id)
-      if (nextHost) await supabase.from('parties').update({ host_id: nextHost.user_id }).eq('id', partyId)
-      else await supabase.from('parties').delete().eq('id', partyId)
+      // Fetch fresh list instead of relying on stale React state
+      const { data: remaining } = await supabase
+        .from('party_members')
+        .select('user_id')
+        .eq('party_id', partyId)
+        .neq('user_id', user.id)
+        .limit(1)
+        .maybeSingle()
+
+      if (remaining) {
+        await supabase.from('parties').update({ host_id: remaining.user_id }).eq('id', partyId)
+      } else {
+        await supabase.from('parties').delete().eq('id', partyId)
+      }
     }
+
     router.push('/party')
   }
 
@@ -669,7 +845,7 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
       .or(`username.eq.${inviteUserInput},nickname.eq.${inviteUserInput}`).single()
     if (!profile) { pushToast('User not found', 'error'); return }
     await supabase.from('party_members').upsert({ party_id: partyId, user_id: profile.id })
-    pushToast(`${inviteUserInput} added to party!`, 'success')
+    pushToast(`${inviteUserInput} added!`, 'success')
     setInviteUserInput('')
   }
 
@@ -678,66 +854,120 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
   return (
     <div style={{
       height: '100vh', background: '#0a0812', color: '#f0e6d3',
-      fontFamily: "'Nunito', sans-serif", display: 'flex', flexDirection: 'column',
-      overflow: 'hidden', paddingTop: 70,
+      fontFamily: "'Nunito', sans-serif", display: 'flex',
+      flexDirection: 'column', overflow: 'hidden', paddingTop: 70,
     }}>
       <style>{`
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Nunito:wght@400;600;700&display=swap');
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 4px; }
+        @keyframes hr-pulse  { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        @keyframes hr-fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+        .party-room {
+          display: grid; grid-template-columns: 1fr 320px;
+          height: calc(100vh - 70px); overflow: hidden;
+        }
+
+        .party-left { display: flex; flex-direction: column; overflow: hidden; height: 100%; }
+        .party-right { background: #0f0c18; border-left: 1px solid rgba(201,168,76,0.1); display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+        .party-header {
+          padding: 12px 20px;
+          border-bottom: 1px solid rgba(201,168,76,0.1);
+          display: flex; align-items: center; justify-content: space-between;
+          flex-wrap: wrap; gap: 10px;
+          background: linear-gradient(to bottom, rgba(10,8,18,0.95), rgba(15,12,24,0.9));
+          flex-shrink: 0;
+        }
+
+        .party-video-area {
+          flex: 1; background: #000; position: relative;
+          overflow: hidden; min-height: 0;
+        }
+        .party-video-area video {
+          width: 100%; height: 100%; object-fit: contain;
+          display: block; background: #000;
+        }
+
+        .no-video {
+          flex: 1; display: flex; flex-direction: column; align-items: center;
+          justify-content: center; gap: 16px; color: rgba(240,230,211,0.25);
+          background: radial-gradient(ellipse at center, rgba(192,57,43,0.04) 0%, transparent 70%);
+          min-height: 0;
+        }
+
+        .party-btn {
+          padding: 7px 14px; border-radius: 6px; font-size: 12px;
+          font-weight: 700; cursor: pointer; border: none;
+          font-family: 'Nunito', sans-serif; transition: all 0.15s;
+          letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 5px;
+        }
+        .party-btn-gold {
+          background: rgba(201,168,76,0.1); color: #c9a84c;
+          border: 1px solid rgba(201,168,76,0.25) !important;
+        }
+        .party-btn-gold:hover { background: rgba(201,168,76,0.18); border-color: #c9a84c !important; }
+        .party-btn-red {
+          background: linear-gradient(135deg, #c0392b, #7b1a1a);
+          color: #f0c96a; border: 1px solid rgba(201,168,76,0.25) !important;
+        }
+        .party-btn-red:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+        .party-btn-danger {
+          background: rgba(192,57,43,0.15); color: #e74c3c;
+          border: 1px solid rgba(192,57,43,0.3) !important;
+        }
+        .party-btn-danger:hover { background: rgba(192,57,43,0.25); }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(201,168,76,0.35); }
-        .party-room { display: grid; grid-template-columns: 1fr 320px; flex: 1; height: calc(100vh - 70px); overflow: hidden; }
-        @media(max-width:768px) {
+        ::-webkit-scrollbar-thumb:hover { background: rgba(201,168,76,0.4); }
+
+        @media (max-width: 768px) {
           .party-room { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: calc(100vh - 64px); }
           .party-video-area { max-height: 35vh; }
+          .party-right { height: 100%; }
         }
-        .btn-sm { padding: 7px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; border: none; font-family: 'Nunito', sans-serif; transition: opacity 0.15s; letter-spacing: 0.5px; }
-        .btn-sm:hover { opacity: 0.85; }
-        .btn-gold { background: linear-gradient(135deg,#c9a84c,#8a6a1e); color: #0a0812; }
-        .btn-danger { background: rgba(192,57,43,0.2); color: #e74c3c; border: 1px solid rgba(192,57,43,0.3) !important; }
       `}</style>
 
       <Navbar />
 
       <div className="party-room">
-        {/* ── Left: video + header ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
-          {/* Party header */}
-          <div style={{
-            padding: '11px 18px', borderBottom: '1px solid rgba(201,168,76,0.1)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            flexWrap: 'wrap', gap: 10, background: '#0f0c18', flexShrink: 0,
-          }}>
+        {/* ── Left ── */}
+        <div className="party-left">
+          {/* Header */}
+          <div className="party-header">
             <div>
-              <div style={{ fontFamily: "'Cinzel', serif", fontSize: 16, color: '#f0e6d3', letterSpacing: 1 }}>
-                {party.name}
+              <div style={{
+                fontFamily: "'Cinzel', serif", fontSize: 17,
+                color: '#f0e6d3', letterSpacing: 1,
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                🎉 {party.name}
               </div>
               {party.videos && (
-                <div style={{ fontSize: 12, color: 'rgba(240,230,211,0.35)', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: 'rgba(240,230,211,0.35)', marginTop: 3 }}>
                   ▶ {party.videos.title}
                 </div>
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {!isHost && <SyncBadge status={syncStatus} />}
-              {isHost && <SyncBadge status="live" />}
+              <SyncBadge status={isHost ? 'live' : syncStatus} />
               {isHost && (
-                <button className="btn-sm btn-gold" onClick={() => setShowVideoSelect(true)}>🎬 Video</button>
+                <button className="party-btn party-btn-gold" onClick={() => setShowVideoSelect(true)}>
+                  🎬 Video
+                </button>
               )}
-              <button className="btn-sm btn-gold" onClick={handleCopyInvite}>
-                {inviteCopied ? '✓ Copied' : 'Copy Code'}
+              <button className="party-btn party-btn-gold" onClick={handleCopyInvite}>
+                {inviteCopied ? '✓ Copied' : '🔑 Code'}
               </button>
-              <button className="btn-sm btn-danger" onClick={handleLeave}>Leave</button>
+              <button className="party-btn party-btn-danger" onClick={handleLeave}>
+                Leave
+              </button>
             </div>
           </div>
 
-          {/* Video area */}
+          {/* Video */}
           {party.videos ? (
-            <div className="party-video-area" style={{ flex: 1, background: '#000', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
+            <div className="party-video-area">
               <video
                 ref={videoRef}
                 src={getStorageUrl(party.videos.video_url)}
@@ -746,56 +976,66 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
                 onSeeked={isHost ? handleSeeked : undefined}
                 controls={isHost}
                 playsInline
-                style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000' }}
               />
               {!isHost && (
                 <div style={{
                   position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)',
-                  fontSize: 11, color: 'rgba(240,230,211,0.35)', background: 'rgba(10,8,18,0.75)',
-                  padding: '4px 14px', borderRadius: 20, whiteSpace: 'nowrap',
-                  backdropFilter: 'blur(6px)',
+                  fontSize: 11, color: 'rgba(240,230,211,0.35)',
+                  background: 'rgba(10,8,18,0.8)', padding: '4px 16px',
+                  borderRadius: 20, whiteSpace: 'nowrap',
+                  border: '1px solid rgba(201,168,76,0.1)',
+                  backdropFilter: 'blur(8px)',
                 }}>
                   🎬 Only the host controls playback
                 </div>
               )}
             </div>
           ) : (
-            <div style={{
-              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', gap: 16, color: 'rgba(240,230,211,0.3)',
-              background: '#0a0812', minHeight: 0,
-            }}>
-              <div style={{ fontSize: 52, opacity: 0.25 }}>🎬</div>
-              <p style={{ fontSize: 14 }}>
-                {isHost ? 'Select a video to start watching!' : 'Waiting for the host to pick a video…'}
+            <div className="no-video">
+              <div style={{ fontSize: 56, opacity: 0.2 }}>🎬</div>
+              <p style={{
+                fontSize: 15, fontFamily: "'Cinzel', serif",
+                letterSpacing: 1, color: 'rgba(240,230,211,0.3)',
+              }}>
+                {isHost ? 'Select a video to start' : 'Waiting for host to pick a video...'}
               </p>
               {isHost && (
-                <button className="btn-sm btn-gold" onClick={() => setShowVideoSelect(true)}>🎬 Select Video</button>
+                <button className="party-btn party-btn-red" onClick={() => setShowVideoSelect(true)}>
+                  🎬 Select Video
+                </button>
               )}
             </div>
           )}
         </div>
 
-        {/* ── Right: sidebar ── */}
-        <div style={{ background: '#0f0c18', borderLeft: '1px solid rgba(201,168,76,0.1)', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        {/* ── Right ── */}
+        <div className="party-right">
           <PartyRightPanel
             messages={messages} members={members} user={user}
-            message={message} setMessage={setMessage} handleSendMessage={handleSendMessage}
-            chatRef={chatRef} inviteCode={party.invite_code}
-            inviteUserInput={inviteUserInput} setInviteUserInput={setInviteUserInput}
+            message={message} setMessage={setMessage}
+            handleSendMessage={handleSendMessage} chatRef={chatRef}
+            inviteCode={party.invite_code}
+            inviteUserInput={inviteUserInput}
+            setInviteUserInput={setInviteUserInput}
             handleInviteByUsername={handleInviteByUsername}
-            handleCopyInvite={handleCopyInvite} inviteCopied={inviteCopied}
+            handleCopyInvite={handleCopyInvite}
+            inviteCopied={inviteCopied}
             isHost={isHost} hostId={party.host_id}
+            onlineUserIds={onlineUserIds}
           />
         </div>
       </div>
 
-      {/* ── Video select modal ── */}
+      {/* Video select modal */}
       {showVideoSelect && (
-        <VideoSelectModal videos={videos} onSelect={handleSelectVideo} onClose={() => setShowVideoSelect(false)} />
+        <VideoSelectModal
+          videos={videos}
+          onSelect={handleSelectVideo}
+          onClose={() => setShowVideoSelect(false)}
+        />
       )}
 
-      {/* ── Toasts ── */}
+      {/* Toasts */}
       <ToastLayer toasts={toasts} />
     </div>
   )
