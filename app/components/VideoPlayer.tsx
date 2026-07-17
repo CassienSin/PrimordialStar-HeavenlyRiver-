@@ -126,6 +126,8 @@ export default function VideoPlayer({
 
   const [isPlaying,       setIsPlaying]       = useState(false)
   const [progress,        setProgress]        = useState(0)
+  const [buffered,        setBuffered]        = useState(0)
+  const [isWaiting,       setIsWaiting]       = useState(false)
   const [currentTime,     setCurrentTime]     = useState(0)
   const [totalTime,       setTotalTime]       = useState(0)
   const [volume,          setVolume]          = useState(1)
@@ -161,7 +163,6 @@ export default function VideoPlayer({
   useEffect(() => { cuesRef.current = cues }, [cues])
   useEffect(() => { subsEnabledRef.current = subsEnabled }, [subsEnabled])
 
-  // Binary-search sorted cues for the cue active at time t
   const findCue = useCallback((t: number): SubtitleCue | null => {
     if (!subsEnabledRef.current) return null
     const arr = cuesRef.current
@@ -217,7 +218,7 @@ export default function VideoPlayer({
     }
   }, [isPlaying])
 
-  // FIX 2: Clean up pending timers on unmount to prevent setState on an
+  // Clean up pending timers on unmount to prevent setState on an
   // unmounted component and avoid memory leaks.
   useEffect(() => {
     return () => {
@@ -235,17 +236,43 @@ export default function VideoPlayer({
       setProgress(v.duration ? v.currentTime / v.duration : 0)
       onTimeUpdate?.(v.currentTime)
     }
-    const onMeta   = () => setTotalTime(v.duration)
-    const onEnded  = () => setIsPlaying(false)
+    const onMeta    = () => setTotalTime(v.duration)
+    const onEnded   = () => setIsPlaying(false)
+    // isPlaying now mirrors the element's real state — no more desync when
+    // autoplay is blocked or the browser pauses playback on its own
+    // (tab switch, PiP, bluetooth headphones disconnecting, etc.)
+    const onPlay    = () => setIsPlaying(true)
+    const onPause   = () => setIsPlaying(false)
+    // Buffering UI
+    const onWaiting = () => setIsWaiting(true)
+    const onPlaying = () => setIsWaiting(false)
+    const onSeeked  = () => setIsWaiting(false)
+    const onProgress = () => {
+      if (v.buffered.length && v.duration) {
+        setBuffered(v.buffered.end(v.buffered.length - 1) / v.duration)
+      }
+    }
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('loadedmetadata', onMeta)
     v.addEventListener('ended', onEnded)
+    v.addEventListener('play', onPlay)
+    v.addEventListener('pause', onPause)
+    v.addEventListener('waiting', onWaiting)
+    v.addEventListener('playing', onPlaying)
+    v.addEventListener('seeked', onSeeked)
+    v.addEventListener('progress', onProgress)
     return () => {
       v.removeEventListener('timeupdate', onTime)
       v.removeEventListener('loadedmetadata', onMeta)
       v.removeEventListener('ended', onEnded)
+      v.removeEventListener('play', onPlay)
+      v.removeEventListener('pause', onPause)
+      v.removeEventListener('waiting', onWaiting)
+      v.removeEventListener('playing', onPlaying)
+      v.removeEventListener('seeked', onSeeked)
+      v.removeEventListener('progress', onProgress)
     }
-  }, [])
+  }, [onTimeUpdate])
 
   // ── Fullscreen change listener ──────────────────────────────────────────────
   useEffect(() => {
@@ -268,15 +295,20 @@ export default function VideoPlayer({
   const togglePlay = useCallback(() => {
     const v = videoRef.current
     if (!v && !src) {
+      // Demo mode with no video element
       setIsPlaying(p => { flash(p ? 'pause' : 'play'); return !p })
       return
     }
     if (!v) return
-    setIsPlaying(p => {
-      if (p) { v.pause(); flash('pause') }
-      else   { v.play();  flash('play')  }
-      return !p
-    })
+    // Ask the element, not React state — the play/pause listeners
+    // will update isPlaying once the browser actually complies.
+    if (v.paused || v.ended) {
+      v.play().catch(() => {})
+      flash('play')
+    } else {
+      v.pause()
+      flash('pause')
+    }
   }, [src, flash])
 
   const skip = useCallback((sec: number) => {
@@ -313,7 +345,7 @@ export default function VideoPlayer({
     }
   }, [])
 
-  // FIX 1: Added stable refs for keyboard-shortcut callbacks so the effect can
+  // Stable refs for keyboard-shortcut callbacks so the effect can
   // safely use [] as its dependency array — preventing the listener from being
   // torn down and re-added on every render.
   const togglePlayRef    = useRef(togglePlay)
@@ -348,10 +380,9 @@ export default function VideoPlayer({
     const rect = bar.getBoundingClientRect()
     const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
     const v = videoRef.current
-    const t = frac * (totalTime || 9456)
     if (v && v.duration) v.currentTime = frac * v.duration
     setProgress(frac)
-    setCurrentTime(t)
+    setCurrentTime(frac * (totalTime || 0))
   }, [totalTime])
 
   useEffect(() => {
@@ -377,7 +408,6 @@ export default function VideoPlayer({
   const openNewCueForm = () => {
     setEditingCue(null)
     setFormStart(fmt(currentTime))
-    // FIX 3: Clamp end time to video duration instead of using a no-op Math.max.
     setFormEnd(fmt(Math.min(currentTime + 2, totalTime || currentTime + 2)))
     setFormText('')
     setFormError('')
@@ -420,7 +450,6 @@ export default function VideoPlayer({
       if (parsed.length === 0) { alert('No subtitle cues found in this file.'); return }
       setCues(prev => [...prev, ...parsed])
     }
-    // FIX 5: Handle file read errors instead of silently failing.
     reader.onerror = () => alert('Failed to read subtitle file. Please try again.')
     reader.readAsText(file)
     e.target.value = ''
@@ -446,14 +475,13 @@ export default function VideoPlayer({
   }
 
   const pct          = `${(progress * 100).toFixed(2)}%`
+  const bufferedPct  = `${(buffered * 100).toFixed(2)}%`
   const displayTotal = totalTime ? fmt(totalTime) : duration
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Nunito:wght@300;400;600;700&display=swap');
-
         /* ── Player shell ────────────────────────────────────────────────── */
         .hr-player {
           position: relative; width: 100%; aspect-ratio: 16/9;
@@ -483,6 +511,22 @@ export default function VideoPlayer({
             radial-gradient(ellipse 60% 50% at 65% 45%, #1e1200 0%, transparent 70%),
             radial-gradient(ellipse 40% 60% at 20% 60%, #0d1015 0%, transparent 70%),
             #0a0812;
+        }
+
+        /* ── Buffering spinner ───────────────────────────────────────────── */
+        @keyframes hr-spin { to { transform: rotate(360deg); } }
+        .hr-buffer-spin {
+          position: absolute; inset: 0;
+          display: flex; align-items: center; justify-content: center;
+          pointer-events: none; z-index: 15;
+          animation: hr-sub-in 0.2s ease;
+        }
+        .hr-buffer-ring {
+          width: 52px; height: 52px; border-radius: 50%;
+          border: 3px solid rgba(201,168,76,0.15);
+          border-top-color: #c9a84c;
+          animation: hr-spin 0.9s linear infinite;
+          filter: drop-shadow(0 0 10px rgba(201,168,76,0.3));
         }
 
         /* ── Subtitle display ────────────────────────────────────────────── */
@@ -579,9 +623,9 @@ export default function VideoPlayer({
           padding: 8px 20px 14px;
           background: linear-gradient(to top, rgba(10,8,18,0.9) 0%, transparent 100%);
           display: flex; flex-direction: column; gap: 8px;
-          transition: opacity .3s;
+          transition: opacity .3s, transform .3s cubic-bezier(.22,1,.36,1);
         }
-        .hr-controls.hidden { opacity: 0; pointer-events: none; }
+        .hr-controls.hidden { opacity: 0; pointer-events: none; transform: translateY(8px); }
 
         .hr-prog-wrap {
           position: relative; height: 22px; display: flex;
@@ -595,17 +639,28 @@ export default function VideoPlayer({
         }
         .hr-prog-wrap:hover .hr-prog-track,
         .hr-prog-wrap:active .hr-prog-track { height: 7px; }
-        .hr-prog-fill { height: 100%; background: linear-gradient(90deg, #c0392b, #c9a84c); border-radius: 99px; pointer-events: none; }
+        .hr-prog-buffer {
+          position: absolute; left: 0; top: 0; bottom: 0;
+          background: rgba(201,168,76,0.18);
+          border-radius: 99px; pointer-events: none;
+          transition: width .4s ease;
+        }
+        .hr-prog-fill {
+          position: relative;
+          height: 100%; background: linear-gradient(90deg, #c0392b, #c9a84c);
+          border-radius: 99px; pointer-events: none;
+          box-shadow: 0 0 8px rgba(201,168,76,0.35);
+        }
         .hr-prog-thumb {
           position: absolute; top: 50%; transform: translate(-50%,-50%);
           width: 14px; height: 14px; border-radius: 50%;
-          background: #c9a84c; box-shadow: 0 0 0 3px rgba(201,168,76,0.25);
+          background: #c9a84c; box-shadow: 0 0 0 3px rgba(201,168,76,0.25), 0 0 10px rgba(201,168,76,0.4);
           pointer-events: none; opacity: 0; transition: opacity .2s;
         }
         .hr-prog-wrap:hover .hr-prog-thumb,
         .hr-prog-wrap:active .hr-prog-thumb { opacity: 1; }
 
-        /* FIX 4: Subtitle cue tick marks on the progress bar */
+        /* Subtitle cue tick marks on the progress bar */
         .hr-prog-tick {
           position: absolute; top: 50%; transform: translate(-50%, -50%);
           width: 3px; height: 10px;
@@ -623,6 +678,7 @@ export default function VideoPlayer({
           min-width: 36px; min-height: 36px;
         }
         .hr-btn:hover { background: rgba(201,168,76,0.1); color: #c9a84c; transform: scale(1.08); }
+        .hr-btn:active { transform: scale(0.94); }
         .hr-btn.hr-btn-danger:hover { background: rgba(192,57,43,0.15); color: #e74c3c; }
         .hr-btn.active { color: #c9a84c; }
         .hr-btn svg { display: block; }
@@ -641,6 +697,7 @@ export default function VideoPlayer({
           width: 70px; height: 4px; border-radius: 99px;
           background: rgba(201,168,76,0.2); cursor: pointer;
           outline: none; accent-color: #c9a84c;
+          transition: width .25s cubic-bezier(.22,1,.36,1);
         }
 
         /* ── Back button ─────────────────────────────────────────────────── */
@@ -649,9 +706,9 @@ export default function VideoPlayer({
           width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
           background: rgba(10,8,18,0.6); border: 1px solid rgba(201,168,76,0.2);
           border-radius: 50%; cursor: pointer; pointer-events: all; z-index: 20;
-          backdrop-filter: blur(6px); transition: background .2s, border-color .2s;
+          backdrop-filter: blur(6px); transition: background .2s, border-color .2s, transform .25s cubic-bezier(.22,1,.36,1);
         }
-        .hr-back:hover { background: rgba(201,168,76,0.12); border-color: rgba(201,168,76,0.4); }
+        .hr-back:hover { background: rgba(201,168,76,0.12); border-color: rgba(201,168,76,0.4); transform: translateX(-2px); }
 
         /* ── Center flash ────────────────────────────────────────────────── */
         .hr-flash { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; transition: opacity .2s; }
@@ -811,6 +868,7 @@ export default function VideoPlayer({
           .hr-vol-slider { display: none; }
           .hr-back { top: 10px; left: 10px; width: 30px; height: 30px; }
           .hr-flash-ring { width: 52px; height: 52px; }
+          .hr-buffer-ring { width: 40px; height: 40px; }
           .hr-overlay { padding-bottom: 64px; }
           .hr-subs { bottom: 64px; }
           .hr-subs.controls-hidden { bottom: 10px; }
@@ -821,12 +879,19 @@ export default function VideoPlayer({
           .hr-meta-row { gap: 5px; }
           .hr-skip-label { display: none; }
         }
+
+        @media (prefers-reduced-motion: reduce) {
+          .hr-buffer-ring { animation-duration: 1.8s; }
+          .hr-subs-fade, .hr-admin-panel { animation: none; }
+          .hr-controls, .hr-meta, .hr-btn, .hr-back, .hr-desc-body { transition-property: opacity; }
+        }
       `}</style>
 
       <div
         ref={containerRef}
         className={`hr-player${isFullscreen ? ' hr-fullscreen' : ''}`}
         onClick={togglePlay}
+        onDoubleClick={toggleFullscreen}
         onMouseMove={showControls}
         onTouchStart={showControls}
       >
@@ -852,6 +917,13 @@ export default function VideoPlayer({
             <polyline points="15 18 9 12 15 6" />
           </svg>
         </button>
+
+        {/* ── Buffering spinner ────────────────────────────────────────────── */}
+        {isWaiting && !adminOpen && (
+          <div className="hr-buffer-spin">
+            <div className="hr-buffer-ring" />
+          </div>
+        )}
 
         {/* ── Active subtitle display ──────────────────────────────────────── */}
         {activeCue && subsEnabled && !adminOpen && (
@@ -914,8 +986,9 @@ export default function VideoPlayer({
         <div
           className={`hr-controls${(!controlsVisible && isPlaying) ? ' hidden' : ''}`}
           onClick={e => e.stopPropagation()}
+          onDoubleClick={e => e.stopPropagation()}
         >
-          {/* Progress bar with cue tick marks */}
+          {/* Progress bar with buffered range + cue tick marks */}
           <div
             ref={progressRef}
             className="hr-prog-wrap"
@@ -924,8 +997,8 @@ export default function VideoPlayer({
             onTouchMove={handleTouchMove}
           >
             <div className="hr-prog-track">
+              <div className="hr-prog-buffer" style={{ width: bufferedPct }} />
               <div className="hr-prog-fill" style={{ width: pct }} />
-              {/* FIX 4: Render a tick mark for every subtitle cue on the timeline */}
               {totalTime > 0 && sortedCues.map(c => (
                 <div
                   key={c.id}
@@ -1056,7 +1129,7 @@ export default function VideoPlayer({
 
         {/* ── Admin subtitle panel ──────────────────────────────────────────── */}
         {adminOpen && (
-          <div className="hr-admin-panel" onClick={e => e.stopPropagation()}>
+          <div className="hr-admin-panel" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
             <div className="hr-admin-header">
               <h2>Subtitle Editor</h2>
               <div className="hr-admin-actions">

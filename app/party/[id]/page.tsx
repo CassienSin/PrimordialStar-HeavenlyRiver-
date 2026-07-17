@@ -18,11 +18,38 @@ const getName = (profile: any) => profile?.nickname || profile?.username || 'Use
 const getAvatarSrc = (url: string) => {
   if (!url) return ''
   if (url.startsWith('http')) return url
-  return getStorageUrl(url)   
+  return getStorageUrl(url)
 }
 
 const formatTime = (date: string) =>
   new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+/**
+ * Copy text with a fallback for non-secure origins.
+ * navigator.clipboard only exists on https/localhost — friends visiting
+ * over the LAN (http://192.168.x.x:3000) would get nothing without this.
+ */
+const copyText = async (text: string): Promise<boolean> => {
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {}
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
 
 // ─── Toast hook ───────────────────────────────────────────────────────────────
 
@@ -76,10 +103,11 @@ function SyncBadge({ status }: { status: SyncStatus }) {
       border: `1px solid ${s.color}44`,
       fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
       color: s.color, fontFamily: "'Cinzel', serif",
+      transition: 'color 0.3s, background 0.3s, border-color 0.3s',
     }}>
       <span style={{
         width: 6, height: 6, borderRadius: '50%', background: s.color,
-        animation: status === 'live' ? 'hr-pulse 1.4s ease-in-out infinite' : 'none',
+        animation: status === 'live' || status === 'syncing' ? 'hr-pulse 1.4s ease-in-out infinite' : 'none',
       }} />
       {s.label}
     </div>
@@ -96,6 +124,7 @@ function LoadingSkeleton() {
       flexDirection: 'column', gap: 20,
       color: '#f0e6d3', fontFamily: "'Nunito', sans-serif",
     }}>
+      <style>{`@keyframes hr-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
       <div style={{ fontSize: 52 }}>🎉</div>
       <div style={{ fontFamily: "'Cinzel', serif", fontSize: 16, letterSpacing: 2, color: 'rgba(201,168,76,0.6)' }}>
         Loading party...
@@ -121,11 +150,19 @@ function VideoSelectModal({ videos, onSelect, onClose }: {
   const [query, setQuery] = useState('')
   const filtered = videos.filter(v => v.title?.toLowerCase().includes(query.toLowerCase()))
 
+  // Escape closes the modal
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)',
         zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        animation: 'hr-fadeIn 0.2s ease both',
       }}
       onClick={onClose}
     >
@@ -136,7 +173,8 @@ function VideoSelectModal({ videos, onSelect, onClose }: {
           borderRadius: 12, padding: 28,
           maxWidth: 720, width: '100%', maxHeight: '82vh',
           overflow: 'hidden', display: 'flex', flexDirection: 'column',
-          boxShadow: '0 32px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(201,168,76,0.06)',
+          boxShadow: '0 32px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(201,168,76,0.06), 0 0 32px rgba(201,168,76,0.05)',
+          animation: 'hr-scaleIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) both',
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -154,6 +192,15 @@ function VideoSelectModal({ videos, onSelect, onClose }: {
               color: 'rgba(240,230,211,0.5)', fontSize: 16, cursor: 'pointer',
               width: 32, height: 32, borderRadius: 6, display: 'flex',
               alignItems: 'center', justifyContent: 'center',
+              transition: 'background 0.2s, color 0.2s',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.background = 'rgba(201,168,76,0.16)'
+              ;(e.currentTarget as HTMLElement).style.color = '#c9a84c'
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.background = 'rgba(201,168,76,0.08)'
+              ;(e.currentTarget as HTMLElement).style.color = 'rgba(240,230,211,0.5)'
             }}
           >✕</button>
         </div>
@@ -202,15 +249,23 @@ function VideoSelectCard({ video, onClick }: { video: any; onClick: () => void }
         background: '#0f0c18',
         border: `1px solid ${hovered ? 'rgba(201,168,76,0.4)' : 'rgba(201,168,76,0.08)'}`,
         borderRadius: 7, overflow: 'hidden', cursor: 'pointer',
-        transform: hovered ? 'scale(1.04)' : 'scale(1)',
-        boxShadow: hovered ? '0 8px 24px rgba(0,0,0,0.6)' : 'none',
-        transition: 'all 0.18s ease',
+        transform: hovered ? 'translateY(-3px) scale(1.03)' : 'translateY(0) scale(1)',
+        boxShadow: hovered ? '0 10px 26px rgba(0,0,0,0.6), 0 0 14px rgba(201,168,76,0.1)' : 'none',
+        transition: 'all 0.25s cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
       <div style={{ width: '100%', aspectRatio: '16/9', background: '#1e1828', overflow: 'hidden', position: 'relative' }}>
         {video.thumbnail_url ? (
           <>
-            <img src={getStorageUrl(video.thumbnail_url)} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <img
+              src={getStorageUrl(video.thumbnail_url)}
+              alt={video.title}
+              style={{
+                width: '100%', height: '100%', objectFit: 'cover',
+                transform: hovered ? 'scale(1.07)' : 'scale(1)',
+                transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+              }}
+            />
             <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(10,8,18,0.7), transparent)' }} />
           </>
         ) : (
@@ -218,7 +273,7 @@ function VideoSelectCard({ video, onClick }: { video: any; onClick: () => void }
         )}
       </div>
       <div style={{ padding: '8px 10px 10px' }}>
-        <div style={{ fontSize: 12, color: '#f0e6d3', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'Nunito', sans-serif" }}>
+        <div style={{ fontSize: 12, color: hovered ? '#f0c96a' : '#f0e6d3', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'Nunito', sans-serif", transition: 'color 0.2s' }}>
           {video.title}
         </div>
         <div style={{ fontSize: 9, color: '#c9a84c', fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', fontFamily: "'Cinzel', serif", marginTop: 3 }}>
@@ -231,9 +286,9 @@ function VideoSelectCard({ video, onClick }: { video: any; onClick: () => void }
 
 // ─── Chat panel ───────────────────────────────────────────────────────────────
 
-function ChatPanel({ messages, user, message, setMessage, onSend, chatRef, isVisible }: any) { 
+function ChatPanel({ messages, user, message, setMessage, onSend, chatRef, isVisible }: any) {
 
-   useEffect(() => {
+  useEffect(() => {
     if (!isVisible) return
     const el = chatRef.current
     if (!el) return
@@ -278,6 +333,7 @@ function ChatPanel({ messages, user, message, setMessage, onSend, chatRef, isVis
                 flexDirection: isOwn ? 'row-reverse' : 'row',
                 alignItems: 'flex-end',
                 marginTop: msg.grouped ? 2 : 12,
+                animation: 'hr-fadeUp 0.25s cubic-bezier(0.22, 1, 0.36, 1)',
               }}
             >
               <div style={{ width: 28, flexShrink: 0 }}>
@@ -326,14 +382,20 @@ function ChatPanel({ messages, user, message, setMessage, onSend, chatRef, isVis
             border: '1px solid rgba(201,168,76,0.12)',
             borderRadius: 8, color: '#f0e6d3', fontSize: 14,
             fontFamily: "'Nunito', sans-serif", outline: 'none',
-            transition: 'border-color 0.2s',
+            transition: 'border-color 0.2s, box-shadow 0.2s',
           }}
           placeholder="Say something..."
           value={message}
           onChange={e => setMessage(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && onSend()}
-          onFocus={e => (e.target.style.borderColor = 'rgba(201,168,76,0.4)')}
-          onBlur={e => (e.target.style.borderColor = 'rgba(201,168,76,0.12)')}
+          onFocus={e => {
+            e.target.style.borderColor = 'rgba(201,168,76,0.4)'
+            e.target.style.boxShadow = '0 0 12px rgba(201,168,76,0.08)'
+          }}
+          onBlur={e => {
+            e.target.style.borderColor = 'rgba(201,168,76,0.12)'
+            e.target.style.boxShadow = 'none'
+          }}
         />
         <button
           onClick={onSend}
@@ -357,37 +419,38 @@ function ChatPanel({ messages, user, message, setMessage, onSend, chatRef, isVis
 function MembersPanel({ members, hostId, onlineUserIds }: any) {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
-      {members.map((m: any) => (
-        <div
-          key={m.id}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            padding: '10px 14px', background: '#16121f',
-            borderRadius: 8, border: '1px solid rgba(201,168,76,0.08)',
-          }}
-        >
-          <Avatar profile={m.profiles} size={36} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, color: '#f0e6d3', fontWeight: 600 }}>{getName(m.profiles)}</div>
-            {m.user_id === hostId && (
-              <div style={{ fontSize: 10, color: '#c9a84c', letterSpacing: 1.2, textTransform: 'uppercase', fontFamily: "'Cinzel', serif", marginTop: 2 }}>
-                👑 Host
-              </div>
-            )}
+      {members.map((m: any, i: number) => {
+        const isOnline = onlineUserIds?.has(m.user_id)
+        return (
+          <div
+            key={m.id}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '10px 14px', background: '#16121f',
+              borderRadius: 8, border: '1px solid rgba(201,168,76,0.08)',
+              animation: `hr-fadeUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) ${Math.min(i * 0.05, 0.3)}s both`,
+            }}
+          >
+            <Avatar profile={m.profiles} size={36} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: '#f0e6d3', fontWeight: 600 }}>{getName(m.profiles)}</div>
+              {m.user_id === hostId && (
+                <div style={{ fontSize: 10, color: '#c9a84c', letterSpacing: 1.2, textTransform: 'uppercase', fontFamily: "'Cinzel', serif", marginTop: 2 }}>
+                  👑 Host
+                </div>
+              )}
+            </div>
+            {/* Online indicator */}
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+              background: isOnline ? '#2ecc71' : 'rgba(240,230,211,0.15)',
+              boxShadow: isOnline ? '0 0 6px rgba(46,204,113,0.6)' : 'none',
+              animation: isOnline ? 'hr-pulse 2.5s ease-in-out infinite' : 'none',
+              transition: 'background 0.3s',
+            }} />
           </div>
-          {/* Online indicator */}
-          {(() => {
-            const isOnline = onlineUserIds?.has(m.user_id)
-            return (
-              <div style={{
-                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                background: isOnline ? '#2ecc71' : 'rgba(240,230,211,0.15)',
-                boxShadow: isOnline ? '0 0 6px rgba(46,204,113,0.6)' : 'none',
-              }} />
-            )
-          })()}
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -529,24 +592,27 @@ function PartyRightPanel(props: any) {
         ))}
       </div>
 
-      {tab === 'chat' && (
-        <ChatPanel
-          messages={messages} user={user} message={message}
-          setMessage={setMessage} onSend={handleSendMessage} 
-          chatRef={chatRef} isVisible={tab === 'chat'}
-        />
-      )}
-      {tab === 'members' && <MembersPanel members={members} hostId={hostId} onlineUserIds={onlineUserIds} />}
-      {tab === 'invite' && (
-        <InvitePanel
-          inviteCode={inviteCode}
-          onCopy={handleCopyInvite}
-          copied={inviteCopied}
-          usernameInput={inviteUserInput}       
-          setUsernameInput={setInviteUserInput}  
-          onAddUser={handleInviteByUsername}
-        />
-      )}
+      {/* key={tab} remounts the panel so switching tabs plays a quick fade-up */}
+      <div key={tab} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, animation: 'hr-fadeUp 0.22s cubic-bezier(0.22, 1, 0.36, 1)' }}>
+        {tab === 'chat' && (
+          <ChatPanel
+            messages={messages} user={user} message={message}
+            setMessage={setMessage} onSend={handleSendMessage}
+            chatRef={chatRef} isVisible={tab === 'chat'}
+          />
+        )}
+        {tab === 'members' && <MembersPanel members={members} hostId={hostId} onlineUserIds={onlineUserIds} />}
+        {tab === 'invite' && (
+          <InvitePanel
+            inviteCode={inviteCode}
+            onCopy={handleCopyInvite}
+            copied={inviteCopied}
+            usernameInput={inviteUserInput}
+            setUsernameInput={setInviteUserInput}
+            onAddUser={handleInviteByUsername}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -568,7 +634,7 @@ function ToastLayer({ toasts }: { toasts: Toast[] }) {
           background: `${colors[t.kind]}18`,
           border: `1px solid ${colors[t.kind]}55`,
           color: colors[t.kind], fontSize: 13, fontWeight: 600,
-          animation: 'hr-fadeUp 0.2s ease', whiteSpace: 'nowrap',
+          animation: 'hr-fadeUp 0.25s cubic-bezier(0.22, 1, 0.36, 1)', whiteSpace: 'nowrap',
           backdropFilter: 'blur(12px)',
           boxShadow: `0 4px 20px ${colors[t.kind]}22`,
           fontFamily: "'Nunito', sans-serif",
@@ -696,11 +762,11 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
           setOnlineUserIds(ids)
         })
 
-        const currentUserId = session.user.id  
+        const currentUserId = session.user.id
 
         channel.subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
-            await channel.track({ user_id: currentUserId })  
+            await channel.track({ user_id: currentUserId })
           }
         })
 
@@ -708,7 +774,7 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
     }
 
     let channelRef: ReturnType<typeof supabase.channel> | null = null
-    let cancelled = false  
+    let cancelled = false
 
     load().then(ch => {
       if (cancelled) {
@@ -728,7 +794,7 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
         router.push('/party')
         return
       }
-      
+
       const expectedTime = fresh.is_playing
         ? (fresh.playback_time || 0) + (Date.now() - fetchedAt) / 1000
         : (fresh.playback_time || 0)
@@ -744,7 +810,7 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
     }, 5000)
 
     return () => {
-      cancelled = true  
+      cancelled = true
       if (channelRef) supabase.removeChannel(channelRef)
       clearInterval(resyncInterval)
     }
@@ -810,6 +876,7 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
   }
 
   const handleLeave = async () => {
+    if (!user) { router.push('/party'); return }
     await supabase.from('party_members').delete().eq('party_id', partyId).eq('user_id', user.id)
 
     if (isHost) {
@@ -832,20 +899,34 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
     router.push('/party')
   }
 
-  const handleCopyInvite = () => {
-    navigator.clipboard.writeText(party?.invite_code || '')
-    setInviteCopied(true)
-    pushToast('Invite code copied!', 'success')
-    setTimeout(() => setInviteCopied(false), 2000)
+  const handleCopyInvite = async () => {
+    const ok = await copyText(party?.invite_code || '')
+    if (ok) {
+      setInviteCopied(true)
+      pushToast('Invite code copied!', 'success')
+      setTimeout(() => setInviteCopied(false), 2000)
+    } else {
+      // Clipboard unavailable (e.g. http over LAN) — at least show the code
+      pushToast(`Code: ${party?.invite_code}`, 'info')
+    }
   }
 
   const handleInviteByUsername = async () => {
-    if (!inviteUserInput.trim()) return
-    const { data: profile } = await supabase.from('profiles').select('id')
-      .or(`username.eq.${inviteUserInput},nickname.eq.${inviteUserInput}`).single()
+    const name = inviteUserInput.trim()
+    if (!name) return
+    // Two exact-match lookups instead of a single .or() filter — the .or()
+    // string breaks on names containing commas/parentheses, and .single()
+    // threw a 406 whenever no user matched.
+    let { data: profile } = await supabase.from('profiles').select('id')
+      .eq('username', name).maybeSingle()
+    if (!profile) {
+      const { data: byNick } = await supabase.from('profiles').select('id')
+        .eq('nickname', name).maybeSingle()
+      profile = byNick
+    }
     if (!profile) { pushToast('User not found', 'error'); return }
     await supabase.from('party_members').upsert({ party_id: partyId, user_id: profile.id })
-    pushToast(`${inviteUserInput} added!`, 'success')
+    pushToast(`${name} added!`, 'success')
     setInviteUserInput('')
   }
 
@@ -858,12 +939,15 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
       flexDirection: 'column', overflow: 'hidden', paddingTop: 70,
     }}>
       <style>{`
-        @keyframes hr-pulse  { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        @keyframes hr-fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes hr-pulse   { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        @keyframes hr-fadeUp  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes hr-fadeIn  { from{opacity:0} to{opacity:1} }
+        @keyframes hr-scaleIn { from{opacity:0;transform:scale(0.96)} to{opacity:1;transform:scale(1)} }
 
         .party-room {
           display: grid; grid-template-columns: 1fr 320px;
           height: calc(100vh - 70px); overflow: hidden;
+          animation: hr-fadeIn 0.4s ease both;
         }
 
         .party-left { display: flex; flex-direction: column; overflow: hidden; height: 100%; }
@@ -897,19 +981,21 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
         .party-btn {
           padding: 7px 14px; border-radius: 6px; font-size: 12px;
           font-weight: 700; cursor: pointer; border: none;
-          font-family: 'Nunito', sans-serif; transition: all 0.15s;
+          font-family: 'Nunito', sans-serif; transition: all 0.2s;
           letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 5px;
         }
+        .party-btn:hover { transform: translateY(-1px); }
+        .party-btn:active { transform: translateY(0) scale(0.96); transition-duration: 0.08s; }
         .party-btn-gold {
           background: rgba(201,168,76,0.1); color: #c9a84c;
           border: 1px solid rgba(201,168,76,0.25) !important;
         }
-        .party-btn-gold:hover { background: rgba(201,168,76,0.18); border-color: #c9a84c !important; }
+        .party-btn-gold:hover { background: rgba(201,168,76,0.18); border-color: #c9a84c !important; box-shadow: 0 0 12px rgba(201,168,76,0.2); }
         .party-btn-red {
           background: linear-gradient(135deg, #c0392b, #7b1a1a);
           color: #f0c96a; border: 1px solid rgba(201,168,76,0.25) !important;
         }
-        .party-btn-red:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+        .party-btn-red:hover { background: linear-gradient(135deg, #e74c3c, #c0392b); box-shadow: 0 0 14px rgba(192,57,43,0.3); }
         .party-btn-danger {
           background: rgba(192,57,43,0.15); color: #e74c3c;
           border: 1px solid rgba(192,57,43,0.3) !important;
@@ -925,6 +1011,12 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
           .party-room { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: calc(100vh - 64px); }
           .party-video-area { max-height: 35vh; }
           .party-right { height: 100%; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .party-room { animation: none; }
+          .party-btn { transition: none; }
+          .party-btn:hover { transform: none; }
         }
       `}</style>
 
@@ -985,6 +1077,7 @@ export default function PartyRoomPage({ params }: { params: Promise<{ id: string
                   borderRadius: 20, whiteSpace: 'nowrap',
                   border: '1px solid rgba(201,168,76,0.1)',
                   backdropFilter: 'blur(8px)',
+                  animation: 'hr-fadeUp 0.4s ease 0.5s both',
                 }}>
                   🎬 Only the host controls playback
                 </div>

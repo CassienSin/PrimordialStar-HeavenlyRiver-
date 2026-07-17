@@ -20,6 +20,7 @@
   --text-faint: rgba(240,230,211,0.25);
   --border: rgba(201,168,76,0.12);
   --border-hover: rgba(201,168,76,0.3);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* =====================
@@ -43,6 +44,101 @@ body {
 ::-webkit-scrollbar { height: 4px; width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 2px; }
+
+/* =====================
+   ANIMATION KEYFRAMES
+===================== */
+@keyframes hr-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hr-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes hr-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* gold sheen sweep across a card on hover */
+@keyframes hr-sheen {
+  from { transform: translateX(-160%) rotate(8deg); }
+  to   { transform: translateX(260%) rotate(8deg); }
+}
+
+/* slow ambient glow breathing (logo / hero titles) */
+@keyframes hr-glow-breathe {
+  0%, 100% { text-shadow: 0 0 20px rgba(201,168,76,0.35); }
+  50%      { text-shadow: 0 0 34px rgba(240,201,106,0.6); }
+}
+
+/* the "river" — faint drifting light band for hero backgrounds */
+@keyframes hr-river-drift {
+  0%   { transform: translateX(-15%) skewX(-12deg); opacity: 0.05; }
+  50%  { opacity: 0.12; }
+  100% { transform: translateX(15%) skewX(-12deg); opacity: 0.05; }
+}
+
+/* gentle float for empty-state icons */
+@keyframes hr-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+/* =====================
+   ENTRANCE UTILITIES (opt-in)
+===================== */
+/* Add .hr-enter to any page/section wrapper for a fade-up on mount */
+.hr-enter {
+  animation: hr-fade-up 0.6s var(--ease-out) both;
+}
+
+/* Add .hr-stagger-cards to a cards row — cards pop in one after another */
+.hr-stagger-cards > * { animation: hr-scale-in 0.45s ease both; }
+.hr-stagger-cards > *:nth-child(1)  { animation-delay: 0.02s; }
+.hr-stagger-cards > *:nth-child(2)  { animation-delay: 0.06s; }
+.hr-stagger-cards > *:nth-child(3)  { animation-delay: 0.10s; }
+.hr-stagger-cards > *:nth-child(4)  { animation-delay: 0.14s; }
+.hr-stagger-cards > *:nth-child(5)  { animation-delay: 0.18s; }
+.hr-stagger-cards > *:nth-child(6)  { animation-delay: 0.22s; }
+.hr-stagger-cards > *:nth-child(7)  { animation-delay: 0.26s; }
+.hr-stagger-cards > *:nth-child(8)  { animation-delay: 0.30s; }
+.hr-stagger-cards > *:nth-child(n+9){ animation-delay: 0.34s; }
+
+/* Scroll-triggered reveal — pairs with components/Reveal.tsx */
+.hr-reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s var(--ease-out), transform 0.7s var(--ease-out);
+}
+.hr-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Ambient logo glow — add .hr-logo-glow to the HeavenlyRiver wordmark */
+.hr-logo-glow {
+  animation: hr-glow-breathe 5s ease-in-out infinite;
+}
+
+/* Hero "river" — <div className="hr-river" aria-hidden="true" /> inside a
+   hero that has position: relative and overflow: hidden */
+.hr-river {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(240, 201, 106, 0.08) 48%,
+    rgba(201, 168, 76, 0.05) 52%,
+    transparent 70%
+  );
+  animation: hr-river-drift 14s ease-in-out infinite;
+}
 
 /* =====================
    TYPOGRAPHY
@@ -69,6 +165,23 @@ body {
 }
 
 /* =====================
+   NAV LINKS — animated gold underline
+===================== */
+.nav-link-item { position: relative; }
+.nav-link-item::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 2px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  transform: scaleX(0);
+  transition: transform 0.3s var(--ease-out);
+}
+.nav-link-item:hover::after { transform: scaleX(1); }
+
+/* =====================
    BUTTONS
 ===================== */
 .btn-primary {
@@ -91,10 +204,16 @@ body {
 .btn-primary:hover {
   background: linear-gradient(135deg, var(--red-bright), var(--red));
   box-shadow: 0 0 20px rgba(192,57,43,0.3);
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.08s;
 }
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
 }
 
 .btn-secondary {
@@ -117,6 +236,12 @@ body {
 .btn-secondary:hover {
   background: rgba(201,168,76,0.15);
   border-color: var(--gold);
+  box-shadow: 0 0 18px rgba(201,168,76,0.2);
+  transform: translateY(-1px);
+}
+.btn-secondary:active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.08s;
 }
 
 .btn-sm {
@@ -134,6 +259,7 @@ body {
   align-items: center;
   gap: 6px;
 }
+.btn-sm:active { transform: scale(0.95); transition-duration: 0.08s; }
 .btn-sm.gold {
   background: rgba(201,168,76,0.1);
   color: var(--gold);
@@ -182,14 +308,14 @@ body {
   font-family: 'Nunito', sans-serif;
   outline: none;
   box-sizing: border-box;
-  transition: border-color 0.2s;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .field input:focus,
 .field textarea:focus,
 .field select:focus {
   border-color: rgba(201,168,76,0.4);
-  box-shadow: 0 0 0 3px rgba(201,168,76,0.04);
+  box-shadow: 0 0 0 3px rgba(201,168,76,0.06), 0 0 14px rgba(201,168,76,0.08);
 }
 
 .field input::placeholder,
@@ -202,7 +328,7 @@ body {
 .field input[type="file"] { color: var(--text-dim); cursor: pointer; font-size: 13px; }
 
 /* =====================
-   MODAL
+   MODAL — animated entrance
 ===================== */
 .modal-overlay {
   position: fixed;
@@ -213,6 +339,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  animation: hr-fade-in 0.25s ease both;
 }
 
 .modal {
@@ -224,6 +351,7 @@ body {
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+  animation: hr-scale-in 0.3s var(--ease-out) both;
 }
 
 .modal-title {
@@ -255,20 +383,56 @@ body {
 .btn-cancel:hover { background: rgba(255,255,255,0.1); }
 
 /* =====================
-   CARDS
+   CARDS — lift, gold glow ring, sheen sweep, image zoom
 ===================== */
 .card-base {
   background: var(--card);
   border: 1px solid rgba(201,168,76,0.08);
   border-radius: 8px;
   overflow: hidden;
+  position: relative;
   transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s, border-color 0.3s;
+  will-change: transform;
 }
 .card-base:hover {
   transform: translateY(-5px) scale(1.02);
-  box-shadow: 0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,168,76,0.18);
+  box-shadow:
+    0 16px 40px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(201,168,76,0.18),
+    0 0 24px rgba(201,168,76,0.1);
   border-color: rgba(201,168,76,0.18);
   z-index: 2;
+}
+
+/* gold sheen that sweeps across the card once on hover */
+.card-base::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: 0;
+  width: 45%;
+  height: 140%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(240, 201, 106, 0.10),
+    transparent
+  );
+  transform: translateX(-160%) rotate(8deg);
+  pointer-events: none;
+}
+.card-base:hover::after {
+  animation: hr-sheen 0.9s ease forwards;
+}
+
+/* slow zoom on the card's image/video while hovered */
+.card-base img,
+.card-base video {
+  transition: transform 0.6s var(--ease-out);
+}
+.card-base:hover img,
+.card-base:hover video {
+  transform: scale(1.07);
 }
 
 /* =====================
@@ -315,7 +479,7 @@ body {
 }
 
 /* =====================
-   SKELETON LOADING
+   SKELETON LOADING — gold-tinted shimmer
 ===================== */
 @keyframes shimmer {
   0% { background-position: 200% 0; }
@@ -323,7 +487,14 @@ body {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--card) 25%, var(--ink) 50%, var(--card) 75%);
+  background: linear-gradient(
+    90deg,
+    var(--card) 25%,
+    var(--ink) 45%,
+    rgba(201,168,76,0.08) 50%,
+    var(--ink) 55%,
+    var(--card) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
   border-radius: 4px;
@@ -339,7 +510,14 @@ body {
 .skeleton-thumb {
   width: 100%;
   aspect-ratio: 16/9;
-  background: linear-gradient(90deg, var(--card) 25%, var(--ink) 50%, var(--card) 75%);
+  background: linear-gradient(
+    90deg,
+    var(--card) 25%,
+    var(--ink) 45%,
+    rgba(201,168,76,0.08) 50%,
+    var(--ink) 55%,
+    var(--card) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -348,7 +526,14 @@ body {
   height: 11px;
   border-radius: 3px;
   margin-bottom: 7px;
-  background: linear-gradient(90deg, var(--card) 25%, var(--ink) 50%, var(--card) 75%);
+  background: linear-gradient(
+    90deg,
+    var(--card) 25%,
+    var(--ink) 45%,
+    rgba(201,168,76,0.08) 50%,
+    var(--ink) 55%,
+    var(--card) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -357,18 +542,20 @@ body {
 .skeleton-body { padding: 11px 12px 13px; }
 
 /* =====================
-   EMPTY STATE
+   EMPTY STATE — floating icon
 ===================== */
 .empty-state {
   text-align: center;
   padding: 80px 20px;
   color: var(--text-faint);
+  animation: hr-fade-up 0.6s var(--ease-out) both;
 }
 
 .empty-icon {
   font-size: 56px;
   opacity: 0.3;
   margin-bottom: 16px;
+  animation: hr-float 4s ease-in-out infinite;
 }
 
 .empty-text {
@@ -414,18 +601,20 @@ body {
 }
 
 /* =====================
-   PAGE WRAPPERS
+   PAGE WRAPPERS — subtle fade-up on mount
 ===================== */
 .page-wrap {
   max-width: 900px;
   margin: 0 auto;
   padding: 100px 24px 80px;
+  animation: hr-fade-up 0.5s var(--ease-out) both;
 }
 
 .page-wrap-wide {
   max-width: 1100px;
   margin: 0 auto;
   padding: 100px 24px 80px;
+  animation: hr-fade-up 0.5s var(--ease-out) both;
 }
 
 .page-header {
@@ -438,7 +627,7 @@ body {
 }
 
 /* =====================
-   PROGRESS BAR
+   PROGRESS BAR — animated glow tip
 ===================== */
 .progress-wrap { margin-top: 16px; }
 
@@ -455,6 +644,7 @@ body {
   background: linear-gradient(to right, var(--red), var(--gold));
   border-radius: 3px;
   transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(201,168,76,0.4);
 }
 
 .progress-labels {
@@ -468,7 +658,7 @@ body {
 .progress-pct { color: var(--gold); font-weight: 700; }
 
 /* =====================
-   BACK LINK
+   BACK LINK — arrow nudge
 ===================== */
 .back-link {
   display: inline-flex;
@@ -479,10 +669,13 @@ body {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  transition: color 0.2s;
+  transition: color 0.2s, transform 0.25s var(--ease-out);
   margin-bottom: 20px;
 }
-.back-link:hover { color: var(--gold); }
+.back-link:hover {
+  color: var(--gold);
+  transform: translateX(-3px);
+}
 
 /* =====================
    THUMBNAIL PREVIEW
@@ -532,4 +725,44 @@ body {
 @media (max-width: 480px) {
   .page-title { font-size: 20px; }
   .btn-primary, .btn-secondary { padding: 9px 16px; font-size: 12px; }
+}
+
+/* =====================
+   REDUCED MOTION
+===================== */
+@media (prefers-reduced-motion: reduce) {
+  .hr-enter,
+  .hr-stagger-cards > *,
+  .hr-logo-glow,
+  .hr-river,
+  .modal,
+  .modal-overlay,
+  .page-wrap,
+  .page-wrap-wide,
+  .empty-state,
+  .empty-icon,
+  .skeleton,
+  .skeleton-thumb,
+  .skeleton-line {
+    animation: none !important;
+  }
+  .hr-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .card-base,
+  .card-base img,
+  .card-base video,
+  .btn-primary,
+  .btn-secondary,
+  .btn-sm,
+  .back-link,
+  .nav-link-item::after {
+    transition: none !important;
+  }
+  .card-base:hover { transform: none; }
+  .card-base:hover::after { animation: none; }
+  .card-base:hover img,
+  .card-base:hover video { transform: none; }
 }
